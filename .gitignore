@@ -1,0 +1,102 @@
+# Next.js
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# Node.js
+/node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+.yarn/
+.npm/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+
+# uv
+.uv/
+.python-version
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+logs/
+*.log
+node_modules/
+__pycache__/
+*.log
+uploads/*
+*.pyc
+dist/
+build/
+*.sqlite3
+*.db
+frontend/bun.lockb
+digital evidence locker/blockchain/node_modules/
+digital evidence locker/frontend/node_modules/
+react-bits-mcp-server/node_modules/
+
+# Testing
+coverage/
+.nyc_output/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# OS
+.DS_Store
+Thumbs.db
+
+react-bits-mcp-server/
+
+
+##Deepfake Detector
+temp_uploads/
+temp_downloads/
+local_db.json
+
+blockchain/artifacts/
+blockchain/cache/S

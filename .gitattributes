@@ -1,0 +1,22 @@
+# Enforce consistent line endings in the repository
+# Use LF in the repository and let clients handle conversion on checkout
+* text=auto
+
+# Force LF for common source files
+*.css text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.py text eol=lf
+*.sol text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary

@@ -1,0 +1,59 @@
+.card-spotlight {
+  position: relative;
+  overflow: hidden;
+  border-radius: inherit;
+  --mouse-x: 50%;
+  --mouse-y: 50%;
+  /* tweak these to control intensity */
+  --spotlight-color: rgba(255, 255, 255, 0.28);
+  --spotlight-radius: 100%;
+  --spotlight-blend: screen;
+  --spotlight-blur: 18px;
+}
+
+.card-spotlight > * {
+  position: relative;
+  z-index: 1;
+}
+
+.card-spotlight::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  /* stronger multi-layer radial gradients for a brighter glow */
+  background:
+    radial-gradient(circle at var(--mouse-x) var(--mouse-y), var(--spotlight-color) 0%, transparent calc(var(--spotlight-radius) * 0.6)),
+    radial-gradient(circle at var(--mouse-x) var(--mouse-y), rgba(255,255,255,0.06) 0%, transparent var(--spotlight-radius));
+  opacity: 0;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  pointer-events: none;
+  z-index: 0;
+  mix-blend-mode: var(--spotlight-blend);
+  filter: blur(var(--spotlight-blur)) brightness(1.35) saturate(1.15);
+}
+
+.card-spotlight::after {
+  /* large soft halo to amplify brightness */
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at var(--mouse-x) var(--mouse-y), var(--spotlight-color) 0%, transparent 80%);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(calc(var(--spotlight-blur) * 1.6)) brightness(1.1);
+  mix-blend-mode: var(--spotlight-blend);
+  transition: opacity 0.25s ease;
+}
+
+.card-spotlight:hover::before,
+.card-spotlight:focus-within::before,
+.card-spotlight:hover::after,
+.card-spotlight:focus-within::after {
+  opacity: 1;
+}
+
+.card-spotlight.bright {
+  --spotlight-color: rgba(189, 21, 130, 0.48);
+  --spotlight-blur: 10px;
+}

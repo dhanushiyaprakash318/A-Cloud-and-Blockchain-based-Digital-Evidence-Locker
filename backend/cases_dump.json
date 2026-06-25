@@ -1,0 +1,14 @@
+[
+  {
+    "evidence": [
+      {
+        "case_id": "185d95e8-e9ea-4d04-817e-2949eb4d0136",
+        "evidence_id": "d054f411-5982-4a32-aae1-199307390df5",
+        "filename": "test.jpg",
+        "ai_summary": "Detected a cat."
+      }
+    ],
+    "id": "185d95e8-e9ea-4d04-817e-2949eb4d0136",
+    "district": "Test District"
+  }
+]

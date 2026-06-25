@@ -1,0 +1,16 @@
+{
+    "name": "divel-blockchain",
+    "version": "1.0.0",
+    "description": "Private blockchain for Digital Evidence Locker",
+    "scripts": {
+        "test": "hardhat test",
+        "node": "hardhat node",
+        "deploy:local": "hardhat run scripts/deploy.js --network localhost"
+    },
+    "author": "",
+    "license": "ISC",
+    "devDependencies": {
+        "hardhat": "^2.19.0",
+        "@nomicfoundation/hardhat-toolbox": "^4.0.0"
+    }
+}
