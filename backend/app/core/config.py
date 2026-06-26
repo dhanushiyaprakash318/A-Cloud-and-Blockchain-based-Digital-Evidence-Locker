@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     S3_BUCKET_NAME: Optional[str] = None
     DYNAMODB_TABLE_CASES: Optional[str] = None
     DYNAMODB_TABLE_EVIDENCE: Optional[str] = None
+    S3_ENCRYPTION: Optional[str] = "AES256"  # Options: AES256, aws:kms, None
+    S3_KMS_KEY_ID: Optional[str] = None
 
     # Blockchain
     BLOCKCHAIN_RPC_URL: str = "http://127.0.0.1:8545"

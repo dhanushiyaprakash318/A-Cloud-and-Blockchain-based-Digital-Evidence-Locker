@@ -117,65 +117,62 @@ class BlockchainService:
 
     def verify_integrity(self, evidence_id: str, computed_hash: str) -> dict:
         """
-        Verifies if the computed hash matches the stored hash on chain.
+        Verifies if the computed hash matches the stored hash.
+        Priority: Hardhat smart contract → local file ledger.
         """
-        # Try Blockchain First
+        # ── 1. Try Hardhat Smart Contract ──────────────────────────────
         if self.w3.is_connected() and self.contract:
             try:
-                # Call contract view function
-                # Returns (evidenceId, fileHash, fileType, caseId, uploaderRole, timestamp, previousHash, uploaderAddress)
-                # But we defined a struct, so it returns a tuple of the struct fields
                 evidence_data = self.contract.functions.getEvidence(evidence_id).call()
-                
-                # Check if evidence exists (evidenceId is not empty)
-                if not evidence_data or not evidence_data[0]: 
+
+                if evidence_data and evidence_data[0]:  # evidenceId is non-empty
+                    stored_hash = evidence_data[1]
+                    timestamp_unix = evidence_data[5]
+                    timestamp_str = datetime.fromtimestamp(timestamp_unix).strftime('%Y-%m-%d %H:%M:%S')
+                    is_valid = (stored_hash == computed_hash)
+
+                    print(f"[Blockchain] Found on-chain. Stored: {stored_hash} | Computed: {computed_hash} | Match: {is_valid}")
                     return {
-                        "verified": False,
-                        "status": "NOT_FOUND_ON_CHAIN",
-                        "details": "Evidence ID not found in the blockchain contract.",
-                        "provider": "Local Hardhat Node"
+                        "verified": is_valid,
+                        "status": "VERIFIED" if is_valid else "TAMPERED",
+                        "details": "Hash matches blockchain record." if is_valid
+                                   else "Hash MISMATCH — file altered after upload!",
+                        "provider": "Hardhat Local Blockchain (EvidenceRegistry)",
+                        "blockchain_record": {
+                            "timestamp": timestamp_str,
+                            "uploader_role": evidence_data[4],
+                            "stored_hash": stored_hash,
+                            "block_explorer": "http://localhost:8545"
+                        }
                     }
-                
-                stored_hash = evidence_data[1]
-                timestamp_unix = evidence_data[5]
-                timestamp_str = datetime.fromtimestamp(timestamp_unix).strftime('%Y-%m-%d %H:%M:%S')
-                
-                is_valid = (stored_hash == computed_hash)
-                
-                return {
-                    "verified": is_valid,
-                    "status": "VERIFIED" if is_valid else "TAMPERED",
-                    "details": "Hash matches blockchain record." if is_valid else "Hash Mismatch! File altered.",
-                    "provider": "Local Hardhat Node",
-                    "blockchain_record": {
-                        "timestamp": timestamp_str,
-                        "uploader_role": evidence_data[4],
-                        "stored_hash": stored_hash,
-                        "block_explorer": "Localhost"
-                    }
-                }
+                else:
+                    print(f"[Blockchain] Evidence '{evidence_id}' not in smart contract. Checking local ledger...")
+                    # Don't return yet — fall through to local ledger
             except Exception as e:
-                print(f"Blockchain Verification Error: {e}")
-                # Fallback to file
-        
-        # Fallback
+                print(f"[Blockchain] Contract query error: {e}. Checking local ledger...")
+
+        # ── 2. Fallback: Local File Ledger ─────────────────────────────
         record = self._get_record_from_ledger(evidence_id)
-        
+
         if not record:
             return {
                 "verified": False,
-                "status": "NOT_FOUND_ON_CHAIN",
-                "details": "Evidence ID not found in the blockchain ledger."
+                "status": "NOT_FOUND",
+                "details": "Evidence ID not found in blockchain contract or local ledger.",
+                "provider": "None",
+                "blockchain_record": {"stored_hash": ""}
             }
-            
-        stored_hash = record.get("hash")
+
+        stored_hash = record.get("hash", "")
         is_valid = (stored_hash == computed_hash)
-        
+
+        print(f"[LocalLedger] Stored: {stored_hash} | Computed: {computed_hash} | Match: {is_valid}")
         return {
             "verified": is_valid,
             "status": "VERIFIED" if is_valid else "TAMPERED",
-            "details": "Hash matches blockchain record." if is_valid else "Hash Mismatch! File may have been altered.",
-            "provider": "Local File Mock",
+            "details": "Hash matches local ledger record." if is_valid
+                       else "Hash MISMATCH — file altered after upload!",
+            "provider": "Local Blockchain Ledger (local_blockchain_ledger.json)",
             "blockchain_record": {
                 "timestamp": record.get("timestamp"),
                 "uploader_role": record.get("uploader_role"),

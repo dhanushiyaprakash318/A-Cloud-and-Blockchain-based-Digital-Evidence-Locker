@@ -71,15 +71,21 @@ def clear_database():
     WARNING: This is destructive!
     """
     try:
-        if hasattr(db, '_write_local_db'):
-            # Local mode
-            db._write_local_db({"cases": [], "evidence": []})
-        elif hasattr(db, 'cases_table'):
-            # DynamoDB mode - scan and delete all items
+        # Clear DynamoDB if active
+        if db.cases_table or db.evidence_table:
             if db.cases_table:
                 response = db.cases_table.scan()
                 for item in response.get('Items', []):
                     db.cases_table.delete_item(Key={'id': item['id']})
+            if db.evidence_table:
+                response = db.evidence_table.scan()
+                for item in response.get('Items', []):
+                    db.evidence_table.delete_item(Key={'evidence_id': item['evidence_id']})
+            print("[Init API] Cleared DynamoDB tables.")
+        
+        # Always reset local JSON DB
+        db._write_local_db({"cases": [], "evidence": []})
+        print("[Init API] Cleared local_db.json.")
         
         return {
             "message": "Database cleared successfully",
