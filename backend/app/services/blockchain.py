@@ -48,61 +48,176 @@ class BlockchainService:
     def calculate_hash(self, file_content: bytes) -> str:
         return hashlib.sha256(file_content).hexdigest()
 
-    def store_hash_on_chain(
-        self, 
-        case_id: str, 
-        evidence_id: str, 
-        file_hash: str, 
-        file_type: str, 
-        uploader_role: str, 
-        previous_hash: str = None
-    ):
-        """
-        Stores the hash and metadata on the blockchain.
-        Returns the transaction hash.
-        """
-        previous_hash = previous_hash or ""
-        
+    def _format_contract_record(self, evidence_data) -> dict:
+        """Convert on-chain evidence tuple into a normalized record."""
+        if not evidence_data or not evidence_data[0]:
+            return None
+
+        timestamp_unix = evidence_data[5]
+        timestamp_str = datetime.fromtimestamp(timestamp_unix).strftime('%Y-%m-%d %H:%M:%S')
+
+        return {
+            "evidence_id": evidence_data[0],
+            "stored_hash": evidence_data[1],
+            "file_type": evidence_data[2],
+            "case_id": evidence_data[3],
+            "uploader_role": evidence_data[4],
+            "timestamp": timestamp_str,
+            "previous_hash": evidence_data[6],
+            "uploader_address": evidence_data[7],
+            "provider": "Hardhat Local Blockchain (EvidenceRegistry)",
+            "contract_address": self.contract_address,
+            "chain_id": self.w3.eth.chain_id if self.w3.is_connected() else None,
+            "network": self.rpc_url,
+        }
+
+    def get_evidence_chain_record(self, evidence_id: str) -> dict:
         if self.w3.is_connected() and self.contract:
             try:
-                # Build Transaction
+                evidence_data = self.contract.functions.getEvidence(evidence_id).call()
+                contract_record = self._format_contract_record(evidence_data)
+                if contract_record:
+                    return contract_record
+            except Exception as e:
+                print(f"[Blockchain] Contract query error: {e}.")
+
+        record = self._get_record_from_ledger(evidence_id)
+        if record:
+            return {
+                "evidence_id": evidence_id,
+                "stored_hash": record.get("hash"),
+                "file_type": record.get("file_type"),
+                "case_id": record.get("case_id"),
+                "uploader_role": record.get("uploader_role"),
+                "timestamp": record.get("timestamp"),
+                "previous_hash": record.get("previous_hash"),
+                "tx_hash": record.get("tx_hash"),
+                "provider": "Local Blockchain Ledger (local_blockchain_ledger.json)",
+                "contract_address": "local_blockchain_ledger.json",
+                "chain_id": "local",
+                "network": self.rpc_url,
+            }
+
+        return {
+            "evidence_id": evidence_id,
+            "stored_hash": None,
+            "file_type": None,
+            "case_id": None,
+            "uploader_role": None,
+            "timestamp": None,
+            "previous_hash": None,
+            "tx_hash": None,
+            "provider": "None",
+            "contract_address": None,
+            "chain_id": None,
+            "network": self.rpc_url,
+        }
+
+    def store_hash_on_chain(
+        self,
+        case_id: str,
+        evidence_id: str,
+        file_hash: str,
+        file_type: str,
+        uploader_role: str,
+        previous_hash: str = None
+    ):
+        previous_hash = previous_hash or ""
+        chain_id = self.w3.eth.chain_id if self.w3.is_connected() else None
+        result = {
+            "tx_hash": None,
+            "provider": None,
+            "contract_address": self.contract_address,
+            "chain_id": chain_id,
+            "network": self.rpc_url,
+            "block_number": None,
+            "gas_used": None,
+            "timestamp": str(datetime.now()),
+            "evidence_id": evidence_id,
+            "case_id": case_id,
+            "file_hash": file_hash,
+            "stored_hash": file_hash,
+            "file_type": file_type,
+            "uploader_role": uploader_role,
+            "previous_hash": previous_hash,
+        }
+
+        if self.w3.is_connected() and self.contract:
+            try:
+                print("\n==================== BLOCKCHAIN ====================")
+                print("Connecting to Hardhat Network...")
+                print(f"Evidence ID : {evidence_id}")
+                print(f"Case ID     : {case_id}")
+                print(f"File Hash   : {file_hash}")
+
                 nonce = self.w3.eth.get_transaction_count(self.account_address)
-                
-                # anchorEvidence(evidenceId, fileHash, fileType, caseId, uploaderRole, previousHash)
-                tx_call = self.contract.functions.anchorEvidence(
-                    evidence_id, 
-                    file_hash, 
-                    file_type, 
-                    case_id, 
-                    uploader_role, 
+
+                tx = self.contract.functions.anchorEvidence(
+                    evidence_id,
+                    file_hash,
+                    file_type,
+                    case_id,
+                    uploader_role,
                     previous_hash
                 ).build_transaction({
-                    'chainId': 1337, # Hardhat Local
-                    'gas': 2000000,
-                    'gasPrice': self.w3.to_wei('1', 'gwei'),
-                    'nonce': nonce,
-                    'from': self.account_address
+                    "from": self.account_address,
+                    "nonce": nonce,
+                    "gas": 2000000,
+                    "gasPrice": self.w3.to_wei("1", "gwei"),
+                    "chainId": chain_id
                 })
-                
-                # Sign
-                signed_tx = self.w3.eth.account.sign_transaction(tx_call, private_key=self.private_key)
-                
-                # Send
-                tx_hash = self.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
-                
-                # Wait for receipt (optional, but good for immediate confirmation)
-                self.w3.eth.wait_for_transaction_receipt(tx_hash)
-                
-                return self.w3.to_hex(tx_hash)
-                
+
+                signed_tx = self.w3.eth.account.sign_transaction(
+                    tx,
+                    private_key=self.private_key
+                )
+
+                tx_hash = self.w3.eth.send_raw_transaction(
+                    signed_tx.raw_transaction
+                )
+
+                receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
+
+                result.update({
+                    "tx_hash": tx_hash.hex(),
+                    "provider": "Hardhat Local Blockchain (EvidenceRegistry)",
+                    "block_number": receipt.blockNumber,
+                    "gas_used": receipt.gasUsed,
+                    "timestamp": str(datetime.now()),
+                    "stored_hash": file_hash,
+                })
+
+                # Read back the stored on-chain record immediately for verification
+                try:
+                    on_chain_data = self.contract.functions.getEvidence(evidence_id).call()
+                    on_chain_hash = on_chain_data[1] if on_chain_data and len(on_chain_data) > 1 else None
+                    result["on_chain_hash"] = on_chain_hash
+                    print(f"On-chain Stored Hash : {on_chain_hash}")
+                except Exception as read_err:
+                    print(f"Failed to read back on-chain evidence: {read_err}")
+
+                print("\n====================================================")
+                print("✅ BLOCKCHAIN TRANSACTION SUCCESSFUL")
+                print("====================================================")
+                print(f"Transaction Hash : {result['tx_hash']}")
+                print(f"Block Number     : {result['block_number']}")
+                print(f"Gas Used         : {result['gas_used']}")
+                print(f"Contract Address : {self.contract_address}")
+                print(f"Evidence ID      : {evidence_id}")
+                print(f"Case ID          : {case_id}")
+                print("====================================================\n")
+
+                return result
+
             except Exception as e:
-                print(f"Blockchain Transaction Failed: {e}")
-                # Fallthrough to fallback if chain fails? Or raise error?
-                # For demo reliability, we fall back.
-                pass
-        
-        # Fallback to local ledger
-        print("Using Local Ledger Fallback")
+                print("\n====================================================")
+                print("❌ BLOCKCHAIN TRANSACTION FAILED")
+                print(e)
+                print("====================================================\n")
+
+        print("\n⚠ Blockchain unavailable. Using Local Ledger.\n")
+
+        tx_hash = f"0xLOCAL_LEDGER_{hashlib.md5(file_hash.encode()).hexdigest()}"
         entry = {
             "case_id": case_id,
             "evidence_id": evidence_id,
@@ -110,17 +225,31 @@ class BlockchainService:
             "file_type": file_type,
             "uploader_role": uploader_role,
             "previous_hash": previous_hash,
-            "timestamp": str(datetime.now())
+            "timestamp": str(datetime.now()),
+            "tx_hash": tx_hash,
         }
+
         self._append_to_ledger(entry)
-        return f"0xLOCAL_LEDGER_{hashlib.md5(file_hash.encode()).hexdigest()}"
+
+        result.update({
+            "tx_hash": tx_hash,
+            "provider": "Local Blockchain Ledger (local_blockchain_ledger.json)",
+            "contract_address": "local_blockchain_ledger.json",
+            "chain_id": "local",
+            "block_number": None,
+            "gas_used": None,
+            "stored_hash": file_hash,
+        })
+
+        print(f"Local Ledger Hash : {tx_hash}")
+
+        return result
 
     def verify_integrity(self, evidence_id: str, computed_hash: str) -> dict:
         """
         Verifies if the computed hash matches the stored hash.
         Priority: Hardhat smart contract → local file ledger.
         """
-        # ── 1. Try Hardhat Smart Contract ──────────────────────────────
         if self.w3.is_connected() and self.contract:
             try:
                 evidence_data = self.contract.functions.getEvidence(evidence_id).call()
@@ -142,16 +271,19 @@ class BlockchainService:
                             "timestamp": timestamp_str,
                             "uploader_role": evidence_data[4],
                             "stored_hash": stored_hash,
-                            "block_explorer": "http://localhost:8545"
+                            "contract_address": self.contract_address,
+                            "chain_id": self.w3.eth.chain_id if self.w3.is_connected() else None,
+                            "block_number": None,
+                            "gas_used": None,
+                            "network": self.rpc_url,
                         }
                     }
                 else:
                     print(f"[Blockchain] Evidence '{evidence_id}' not in smart contract. Checking local ledger...")
-                    # Don't return yet — fall through to local ledger
+
             except Exception as e:
                 print(f"[Blockchain] Contract query error: {e}. Checking local ledger...")
 
-        # ── 2. Fallback: Local File Ledger ─────────────────────────────
         record = self._get_record_from_ledger(evidence_id)
 
         if not record:
@@ -176,22 +308,16 @@ class BlockchainService:
             "blockchain_record": {
                 "timestamp": record.get("timestamp"),
                 "uploader_role": record.get("uploader_role"),
-                "stored_hash": stored_hash
+                "stored_hash": stored_hash,
+                "tx_hash": record.get("tx_hash"),
+                "contract_address": "local_blockchain_ledger.json",
+                "chain_id": "local",
+                "block_number": None,
+                "gas_used": None,
+                "network": self.rpc_url,
             }
         }
 
-    def _append_to_ledger(self, entry):
-        try:
-            with open(self.ledger_file, 'r') as f:
-                data = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            data = []
-        
-        data.append(entry)
-        
-        with open(self.ledger_file, 'w') as f:
-            json.dump(data, f)
-            
     def _get_hash_from_ledger(self, evidence_id):
         record = self._get_record_from_ledger(evidence_id)
         return record.get("hash") if record else None
