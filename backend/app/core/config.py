@@ -1,6 +1,12 @@
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 import os
+
+# Load backend/.env early so values override stale process environment variables.
+dotenv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")
+if os.path.exists(dotenv_path):
+    load_dotenv(dotenv_path, override=True)
 
 class Settings(BaseSettings):
     # API
@@ -11,6 +17,7 @@ class Settings(BaseSettings):
     AWS_ACCESS_KEY_ID: Optional[str] = None
     AWS_SECRET_ACCESS_KEY: Optional[str] = None
     AWS_REGION: str = "eu-north-1"
+    AWS_SESSION_TOKEN: Optional[str] = None
     S3_BUCKET_NAME: Optional[str] = None
     DYNAMODB_TABLE_CASES: Optional[str] = None
     DYNAMODB_TABLE_EVIDENCE: Optional[str] = None
