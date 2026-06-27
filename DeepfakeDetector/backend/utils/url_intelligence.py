@@ -118,34 +118,37 @@ class URLIntelligence:
             # If not obvious from extension, check Content-Type header
             try:
                 response = self.session.head(url, allow_redirects=True, timeout=self.timeout)
-                mime_type = response.headers.get('Content-Type', '').lower()
-                
-                if 'image' in mime_type:
-                    content_type = 'image'
-                    is_direct_media = True
-                elif 'video' in mime_type:
-                    content_type = 'video'
-                    is_direct_media = True
-                elif 'text/html' in mime_type:
-                    content_type = 'html'
-                elif 'application/octet-stream' in mime_type:
-                    content_type = 'stream'
-                
-                return {
-                    'content_type': content_type,
-                    'mime_type': mime_type,
-                    'is_direct_media': is_direct_media
-                }
-            except:
-                # If HEAD request fails, return based on extension
-                return {
-                    'content_type': content_type,
-                    'mime_type': 'unknown',
-                    'is_direct_media': is_direct_media
-                }
-                
-        except Exception as e:
-            print(f"Content type detection error: {e}")
+                response.raise_for_status()
+            except Exception:
+                try:
+                    response = self.session.get(url, allow_redirects=True, timeout=self.timeout, stream=True)
+                    response.raise_for_status()
+                except Exception as e:
+                    print(f"Content type detection warning: HEAD+GET failed: {e}")
+                    return {
+                        'content_type': content_type,
+                        'mime_type': 'unknown',
+                        'is_direct_media': is_direct_media
+                    }
+
+            mime_type = response.headers.get('Content-Type', '').lower()
+
+            if 'image' in mime_type:
+                content_type = 'image'
+                is_direct_media = True
+            elif 'video' in mime_type:
+                content_type = 'video'
+                is_direct_media = True
+            elif 'text/html' in mime_type:
+                content_type = 'html'
+            elif 'application/octet-stream' in mime_type:
+                content_type = 'stream'
+
+            return {
+                'content_type': content_type,
+                'mime_type': mime_type,
+                'is_direct_media': is_direct_media
+            }
             return {
                 'content_type': 'unknown',
                 'mime_type': 'unknown',

@@ -11,76 +11,7 @@ from forensic.heatmap import GradCAM
 from forensic.ela import compute_ela
 from forensic.noiseprint import get_noiseprint
 from forensic.frequency import compute_frequency_score
-
-# ... (imports remain)
-
-# ... inside predict method ...
-
-        # 4. Forensics
-        # ELA on input file (image only usually, or first frame of video could be saved)
-        ela_score = 0
-        noiseprint_score = 0
-        freq_score = 0
-        
-        if not is_video:
-            ela_img, ela_score_val = compute_ela(input_path)
-            results['ela_image'] = ela_img
-            ela_score = ela_score_val
-            
-            noiseprint_img, noiseprint_score = get_noiseprint(input_path)
-            results['noiseprint'] = noiseprint_img
-            
-            # Frequency Analysis coverage for high-quality fakes
-            freq_score = compute_frequency_score(input_path)
-        else:
-             # For video, minimal forensic score contribution (neutral)
-             ela_score = 0.5
-             noiseprint_score = 0.5
-             freq_score = 0.5 
-        
-        results['breakdown']['ELA_Score'] = ela_score
-        results['breakdown']['Noiseprint_Score'] = noiseprint_score
-        results['breakdown']['Frequency_Score'] = freq_score
-        
-        # 5. Ensemble Voting
-        final_score = 0.0
-        
-        # Refined Weights
-        if self.use_xception and results['breakdown']['Xception'] != "Skipped (High Confidence)" and results['breakdown']['Xception'] != "Disabled (Missing Weights)":
-            final_score = (0.35 * eff_fake_score) + \
-                          (0.35 * xcp_fake_score) + \
-                          (0.10 * ela_score) + \
-                          (0.10 * noiseprint_score) + \
-                          (0.10 * freq_score)
-        else:
-            # Rely primarily on EfficientNet but include Frequency for high-quality checks
-            final_score = (0.75 * eff_fake_score) + \
-                          (0.05 * ela_score) + \
-                          (0.05 * noiseprint_score) + \
-                          (0.15 * freq_score)
-        
-        # === QUALITY SAFEGUARDS ===
-        # 1. Low Quality / Noise Adjustment
-        # If image is very noisy/blurry (Quality < 0.4), it can trigger false positives in EffNet.
-        # We dampen the score towards 0.0 (Real) if it's high, UNLESS Frequency analysis confirms it.
-        if quality_data.get('quality_score', 1.0) < 0.5:
-             # If prediction is FAKE but purely due to visual noise?
-             # If Frequency score is also LOW (no periodic artifacts), then it's likely just a bad camera.
-             if final_score > 0.6 and freq_score < 0.4:
-                  final_score *= 0.8 # Penalty: Likely false positive due to noise
-                  print("Heuristic: Reducing Fake score due to Low Quality + Normal Frequency.")
-        
-        # 2. High Quality Adjustment
-        # If image is High Q (Quality > 0.8) and EffNet is unsure (0.4-0.6), but Frequency is HIGH:
-        # It's likely a High-Res Deepfake (GAN/Diffusion).
-        if quality_data.get('quality_score', 0) > 0.8:
-             if 0.3 < final_score < 0.7 and freq_score > 0.6:
-                  final_score += 0.15 # Boost: High freq artifacts in high quality image
-                  print("Heuristic: Boosting Fake score due to High Frequency Artifacts.")
-        
-        # Clamp result
-        final_score = max(0.0, min(1.0, final_score))
-
+from forensic.quality_metrics import check_image_quality
 
 class HybridPredictor:
     def __init__(self, model_path_eff='models/best_model-v3.pt', model_path_xcp=None, device='cpu'):
