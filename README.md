@@ -90,6 +90,24 @@ This represents a modern production system design where compute is ephemeral (La
 
 ---
 
+## 4.1 Deepfake Detector Microservice
+
+This project also includes a standalone `DeepfakeDetector` microservice under `DeepfakeDetector/backend`.
+
+- Uses FastAPI to expose:
+  - `POST /predict/image`
+  - `POST /predict/video`
+  - `POST /predict/url`
+- CPU-friendly ensemble model configuration for hackathon use:
+  - `efficientnet_b0`
+  - `resnet34`
+  - `xception`
+  - `swin_base_patch4_window7_224`
+- Frontend integration is available at `frontend/src/pages/DeepfakeDetector.tsx`.
+- Results show classification, confidence, and individual model scores.
+
+---
+
 ## 5. Cost Breakdown
 
 **Current Cost**: ~$4–5 USD
