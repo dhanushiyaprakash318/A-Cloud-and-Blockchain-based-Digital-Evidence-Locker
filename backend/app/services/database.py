@@ -37,14 +37,23 @@ class DatabaseService:
         self._ensure_database_connection()
 
     def _ensure_database_connection(self):
+        print("[DatabaseService] AWS_ACCESS_KEY_ID=", settings.AWS_ACCESS_KEY_ID[:6] + "******" if settings.AWS_ACCESS_KEY_ID else None)
+        print("[DatabaseService] AWS_REGION=", settings.AWS_REGION)
+        print("[DatabaseService] DYNAMODB_TABLE_CASES=", settings.DYNAMODB_TABLE_CASES)
+        print("[DatabaseService] DYNAMODB_TABLE_EVIDENCE=", settings.DYNAMODB_TABLE_EVIDENCE)
+        print("[DatabaseService] AWS_SESSION_TOKEN=", "present" if settings.AWS_SESSION_TOKEN else "none")
+
         if settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY and settings.DYNAMODB_TABLE_CASES and settings.DYNAMODB_TABLE_EVIDENCE:
             try:
-                dynamodb = boto3.resource(
-                    'dynamodb',
-                    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-                    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-                    region_name=settings.AWS_REGION
-                )
+                dynamodb_kwargs = {
+                    'aws_access_key_id': settings.AWS_ACCESS_KEY_ID,
+                    'aws_secret_access_key': settings.AWS_SECRET_ACCESS_KEY,
+                    'region_name': settings.AWS_REGION
+                }
+                if settings.AWS_SESSION_TOKEN:
+                    dynamodb_kwargs['aws_session_token'] = settings.AWS_SESSION_TOKEN
+
+                dynamodb = boto3.resource('dynamodb', **dynamodb_kwargs)
                 cases_table = dynamodb.Table(settings.DYNAMODB_TABLE_CASES)
                 evidence_table = dynamodb.Table(settings.DYNAMODB_TABLE_EVIDENCE)
                 cases_table.load()
