@@ -42,12 +42,12 @@ async def upload_evidence(
     evidence_id = str(uuid.uuid4())
     file_type = file.content_type or "application/octet-stream"
 
-    print(f"\n{'='*60}")
-    print(f"EVIDENCE UPLOAD: {file.filename}")
-    print(f"Evidence ID : {evidence_id}")
-    print(f"Case ID     : {case_id}")
-    print(f"SHA-256 Hash: {file_hash}")
-    print(f"{'='*60}\n")
+    print(f"\n{'='*60}", flush=True)
+    print(f"EVIDENCE UPLOAD: {file.filename}", flush=True)
+    print(f"Evidence ID : {evidence_id}", flush=True)
+    print(f"Case ID     : {case_id}", flush=True)
+    print(f"SHA-256 Hash: {file_hash}", flush=True)
+    print(f"{'='*60}\n", flush=True)
 
     # 3. Save file to local storage
     import io
@@ -55,7 +55,9 @@ async def upload_evidence(
     local_path = storage.upload_file(file_obj, f"{case_id}/{file.filename}", file_type)
 
     # 4. Anchor hash on-chain (Hardhat EvidenceRegistry contract)
-    tx_hash = blockchain.store_hash_on_chain(
+    print(f"[Upload] evidence upload incoming for case: {case_id}, file: {file.filename}", flush=True)
+
+    blockchain_record = blockchain.store_hash_on_chain(
         case_id=case_id,
         evidence_id=evidence_id,
         file_hash=file_hash,
@@ -64,7 +66,8 @@ async def upload_evidence(
         previous_hash=""
     )
 
-    print(f"[Blockchain] TX Hash: {tx_hash}")
+    print(f"[Blockchain] TX Hash       : {blockchain_record.get('tx_hash')}", flush=True)
+    print(f"[Blockchain] Stored Hash   : {blockchain_record.get('stored_hash')}", flush=True)
 
     # 5. Save metadata to local_db.json
     metadata = {
@@ -75,7 +78,8 @@ async def upload_evidence(
         "uploader": current_user.username,
         "uploader_role": current_user.role,
         "file_hash": file_hash,       # SHA-256 stored in DB (for cross-check)
-        "tx_hash": tx_hash,           # Blockchain transaction hash
+        "tx_hash": blockchain_record.get("tx_hash"),
+        "blockchain": blockchain_record,
         "url": local_path,            # Local path (used for re-read during verify)
         "local_path": local_path,     # Explicit local path
         "uploaded_at": str(datetime.now())
@@ -107,11 +111,28 @@ async def upload_evidence(
         "evidence_id": evidence_id,
         "filename": file.filename,
         "file_hash": file_hash,
-        "tx_hash": tx_hash,
+        "tx_hash": blockchain_record.get("tx_hash"),
+        "blockchain": blockchain_record,
         "local_path": local_path,
         "ai_summary": ai_result.get("summary"),
         "knowledge_graph": ai_result.get("graph"),
         "message": "Evidence uploaded and anchored to blockchain successfully."
+    }
+
+
+@router.get("/{evidence_id}/blockchain")
+async def get_evidence_blockchain_record(evidence_id: str):
+    """Fetch stored blockchain details for evidence by ID."""
+    metadata = db.get_evidence_metadata(evidence_id)
+    if not metadata:
+        raise HTTPException(status_code=404, detail=f"Evidence '{evidence_id}' not found in database.")
+
+    blockchain_record = blockchain.get_evidence_chain_record(evidence_id)
+    blockchain_record["tx_hash"] = metadata.get("tx_hash") or blockchain_record.get("tx_hash")
+
+    return {
+        "evidence_id": evidence_id,
+        "blockchain": blockchain_record
     }
 
 
@@ -161,10 +182,27 @@ async def verify_evidence(evidence_id: str):
     on_chain_hash = verification_result.get("blockchain_record", {}).get("stored_hash", "")
     hashes_match = (recomputed_hash == on_chain_hash) if on_chain_hash else verification_result.get("verified", False)
 
-    print(f"On-Chain Hash  : {on_chain_hash}")
-    print(f"Match          : {hashes_match}")
-    print(f"Verdict        : {'✅ VERIFIED' if hashes_match else '🚨 TAMPERED'}")
-    print(f"{'='*60}\n")
+    # Fetch complete blockchain record for terminal audit logging (does not change verification logic)
+    chain_record = blockchain.get_evidence_chain_record(evidence_id)
+    tx_hash = metadata.get("tx_hash") or chain_record.get("tx_hash")
+    block_number = chain_record.get("block_number")
+    contract_address = chain_record.get("contract_address")
+    timestamp = chain_record.get("timestamp") or verification_result.get("blockchain_record", {}).get("timestamp")
+
+    print(f"\n{'='*60}", flush=True)
+    print("VERIFICATION AUDIT", flush=True)
+    print(f"Evidence ID            : {evidence_id}", flush=True)
+    print(f"Case ID                : {metadata.get('case_id')}", flush=True)
+    print(f"Stored Blockchain Hash : {on_chain_hash}", flush=True)
+    print(f"Current SHA-256 Hash   : {recomputed_hash}", flush=True)
+    print(f"Transaction Hash       : {tx_hash}", flush=True)
+    print(f"Block Number           : {block_number}", flush=True)
+    print(f"Contract Address       : {contract_address}", flush=True)
+    print(f"Timestamp              : {timestamp}", flush=True)
+    print(f"Verification Result    : {'AUTHENTIC' if hashes_match else 'TAMPERED'}", flush=True)
+    print(f"{'='*60}\n", flush=True)
+
+    blockchain_record = verification_result.get("blockchain_record", {})
 
     return {
         "evidence_id": evidence_id,
@@ -182,7 +220,14 @@ async def verify_evidence(evidence_id: str):
         "blockchain": {
             "tx_hash": stored_tx_hash,
             "provider": verification_result.get("provider", "Hardhat Local Node"),
-            "timestamp": verification_result.get("blockchain_record", {}).get("timestamp", "N/A"),
-            "uploader_role": verification_result.get("blockchain_record", {}).get("uploader_role", "N/A")
+            "timestamp": blockchain_record.get("timestamp", "N/A"),
+            "uploader_role": blockchain_record.get("uploader_role", "N/A"),
+            "contract_address": blockchain_record.get("contract_address"),
+            "chain_id": blockchain_record.get("chain_id"),
+            "block_number": blockchain_record.get("block_number"),
+            "gas_used": blockchain_record.get("gas_used"),
+            "network": blockchain_record.get("network"),
+            "stored_hash": blockchain_record.get("stored_hash"),
+            "previous_hash": blockchain_record.get("previous_hash"),
         }
     }

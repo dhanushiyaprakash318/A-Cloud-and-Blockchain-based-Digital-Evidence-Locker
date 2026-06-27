@@ -10,12 +10,15 @@ class StorageService:
 
         if settings.AWS_ACCESS_KEY_ID:
             try:
-                self.s3_client = boto3.client(
-                    's3',
-                    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-                    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-                    region_name=settings.AWS_REGION
-                )
+                s3_kwargs = {
+                    'aws_access_key_id': settings.AWS_ACCESS_KEY_ID,
+                    'aws_secret_access_key': settings.AWS_SECRET_ACCESS_KEY,
+                    'region_name': settings.AWS_REGION
+                }
+                if settings.AWS_SESSION_TOKEN:
+                    s3_kwargs['aws_session_token'] = settings.AWS_SESSION_TOKEN
+
+                self.s3_client = boto3.client('s3', **s3_kwargs)
             except Exception as e:
                 print(f"S3 client init failed: {e}. Using local storage.")
                 self.s3_client = None
@@ -65,15 +68,23 @@ class StorageService:
                         from urllib.parse import urlparse
                         parsed = urlparse(file_path)
                         key = parsed.path.lstrip('/')
-                    
+
                     print(f"[StorageService] Fetching file from S3: Key={key}")
                     response = self.s3_client.get_object(Bucket=self.bucket_name, Key=key)
                     return response['Body'].read()
                 except Exception as e:
                     print(f"[StorageService] Failed to fetch file from S3: {e}")
-                    return None
+                    # Fall through to HTTP fetch if URL is accessible directly
             else:
-                print(f"[StorageService] Cannot fetch remote file: S3 client not configured: {file_path}")
+                print(f"[StorageService] S3 client not configured, attempting HTTP download: {file_path}")
+
+            try:
+                from urllib.request import urlopen
+                print(f"[StorageService] Downloading remote file via HTTP: {file_path}")
+                with urlopen(file_path) as response:
+                    return response.read()
+            except Exception as e:
+                print(f"[StorageService] HTTP download failed: {e}")
                 return None
 
         if os.path.exists(file_path):
