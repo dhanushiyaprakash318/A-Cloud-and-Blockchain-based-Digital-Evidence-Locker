@@ -149,12 +149,14 @@ class URLIntelligence:
                 'mime_type': mime_type,
                 'is_direct_media': is_direct_media
             }
+        except Exception as e:
+            print(f"Content type detection error: {e}")
             return {
                 'content_type': 'unknown',
                 'mime_type': 'unknown',
                 'is_direct_media': False
             }
-    
+
     def extract_media_from_html(self, url: str, html_content: str = None) -> List[str]:
         """
         Extract media URLs from HTML page
