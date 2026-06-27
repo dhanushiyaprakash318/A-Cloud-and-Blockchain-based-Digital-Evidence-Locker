@@ -1,5 +1,11 @@
 import axios, { AxiosError } from 'axios';
-import { Case, CaseCreateRequest, CasesListResponse, CaseDetailResponse } from '@/types/case';
+import {
+  Case,
+  CaseCreateRequest,
+  CasesListResponse,
+  CaseDetailResponse,
+  KnowledgeGraphResponse,
+} from '@/types/case';
 
 // Determine API URL based on environment
 let activeBaseUrl = '';
@@ -108,6 +114,10 @@ export const evidence = {
     const response = await api.get(`/evidence/${evidenceId}/verify`);
     return response.data;
   },
+  blockchain: async (evidenceId: string) => {
+    const response = await api.get(`/evidence/${evidenceId}/blockchain`);
+    return response.data;
+  },
 };
 
 export const cases = {
@@ -152,6 +162,16 @@ export const cases = {
       return response.data;
     } catch (error) {
       console.error('Error creating case:', error);
+      throw error;
+    }
+  },
+
+  graph: async (caseId: string): Promise<KnowledgeGraphResponse> => {
+    try {
+      const response = await api.get(`/cases/${caseId}/knowledge-graph`);
+      return response.data;
+    } catch (error) {
+      console.error(`Error fetching knowledge graph for case ${caseId}:`, error);
       throw error;
     }
   },

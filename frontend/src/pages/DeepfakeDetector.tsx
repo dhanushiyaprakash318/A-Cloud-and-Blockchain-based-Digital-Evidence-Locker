@@ -93,7 +93,9 @@ const DeepfakeDetector: React.FC = () => {
             if (res.data.error) setError(res.data.error);
         } catch (err) {
             console.error(err);
-            setError("URL Analysis Failed. Backend error.");
+            const axiosError = axios.isAxiosError(err) ? err : null;
+            const detail = axiosError?.response?.data?.detail || axiosError?.response?.data?.error;
+            setError(detail ? String(detail) : "URL Analysis Failed. Backend error.");
         } finally {
             setLoading(false);
         }

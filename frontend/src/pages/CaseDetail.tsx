@@ -26,8 +26,14 @@ import {
 import { evidence as evidenceApi } from '@/services/api';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import KnowledgeGraph from '@/components/KnowledgeGraph';
-import { BlockchainVerificationDialog } from '@/components/BlockchainVerificationDialog';
+import { BlockchainVerificationDialog, VerificationResult } from '@/components/BlockchainVerificationDialog';
+import type { Case, Accused, Evidence } from '@/types/case';
+
+type EvidenceWithFallback = Evidence & {
+  evidence_id?: string;
+  uploaded_at?: string;
+  filename?: string;
+};
 
 const statusColors: Record<string, string> = {
   'Under Investigation': 'bg-warning/10 text-warning border-warning/20',
@@ -61,14 +67,14 @@ import { cases } from '@/services/api';
 const CaseDetail: React.FC = () => {
 
   const { id } = useParams<{ id: string }>();
-  const { canViewMetadata } = useRole();
+  const { canViewMetadata, canVerify } = useRole();
   const { toast } = useToast();
   const [verifyingId, setVerifyingId] = React.useState<string | null>(null);
-  const [caseData, setCaseData] = React.useState<any | null>(null);
+  const [caseData, setCaseData] = React.useState<Case | null>(null);
   const [loading, setLoading] = React.useState(true);
 
   // Verification Dialog State
-  const [verificationResult, setVerificationResult] = React.useState<any | null>(null);
+  const [verificationResult, setVerificationResult] = React.useState<VerificationResult | null>(null);
   const [isVerificationOpen, setIsVerificationOpen] = React.useState(false);
   const [isVerifying, setIsVerifying] = React.useState(false);
 
@@ -76,10 +82,8 @@ const CaseDetail: React.FC = () => {
     if (!id) return;
     const fetchCase = async () => {
       try {
-        const data = await cases.get(id);
-        // Extract case object from CaseDetailResponse if wrapped
-        const caseObj = data && 'case' in data ? (data as any).case : data;
-        setCaseData(caseObj);
+        const response = await cases.get(id);
+        setCaseData(response.case);
       } catch (error) {
         console.error("Failed to fetch case", error);
         toast({
@@ -92,7 +96,7 @@ const CaseDetail: React.FC = () => {
       }
     };
     fetchCase();
-  }, [id]);
+  }, [id, toast]);
 
   const handleVerify = async (evidenceId: string, event: React.MouseEvent) => {
     event.stopPropagation(); // Prevent card click
@@ -122,47 +126,6 @@ const CaseDetail: React.FC = () => {
   };
 
   // Derive Graph Data from all evidence
-  const graphData = useMemo(() => {
-    if (!caseData || !caseData.evidence) return { nodes: [], links: [] };
-
-    const nodesMap = new Map();
-    const links: any[] = [];
-
-    caseData.evidence.forEach((ev: any) => {
-      if (ev.metadata?.knowledge_graph) {
-        const kg = ev.metadata.knowledge_graph;
-
-        // Merge Nodes
-        kg.nodes?.forEach((node: any) => {
-          if (!nodesMap.has(node.id)) {
-            nodesMap.set(node.id, { ...node });
-          }
-        });
-
-        // Merge Links
-        kg.links?.forEach((link: any) => {
-          links.push({ ...link });
-        });
-      }
-    });
-
-    // Add Central Case Node
-    const caseNodeId = `Case ${caseData.caseNumber}`;
-    if (!nodesMap.has(caseNodeId)) {
-      nodesMap.set(caseNodeId, { id: caseNodeId, group: "Case", val: 20 });
-    }
-
-    // Link Evidence to Case
-    // caseData.evidence.forEach((ev: any) => {
-    //    // Optional: add evidence files as nodes
-    // });
-
-    return {
-      nodes: Array.from(nodesMap.values()),
-      links: links
-    };
-  }, [caseData]);
-
   // Derive Aggregate Summary
   const displaySummary = useMemo(() => {
     if (!caseData) return "";
@@ -170,8 +133,8 @@ const CaseDetail: React.FC = () => {
 
     // Fallback: Aggregate summaries from recent evidence
     const summaries = caseData.evidence
-      .filter((ev: any) => ev.metadata?.ai_summary)
-      .map((ev: any) => `[Evidence: ${ev.name}]: ${ev.metadata.ai_summary}`)
+      .filter((ev: Evidence) => Boolean(ev.metadata?.ai_summary))
+      .map((ev: Evidence) => `[Evidence: ${ev.name}]: ${ev.metadata?.ai_summary}`)
       .join("\n\n");
 
     return summaries || "";
@@ -240,39 +203,6 @@ const CaseDetail: React.FC = () => {
                 {section}
               </Badge>
             ))}
-          </div>
-        </div>
-
-        {/* AI Analysis Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-          {/* Left: Summary */}
-          <div className="lg:col-span-1">
-            {displaySummary && (
-              <Card className="border-primary/20 bg-primary/5 h-full">
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <Brain className="h-6 w-6 text-primary animate-pulse" />
-                    AI Case Analysis
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="max-h-[400px] overflow-y-auto pr-2 text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                    {displaySummary}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-            {!displaySummary && (
-              <Card className="border-dashed h-full flex items-center justify-center p-6 text-muted-foreground">
-                No AI Analysis Available. Upload evidence to generate insights.
-              </Card>
-            )}
-          </div>
-
-          {/* Right: Knowledge Graph */}
-          <div className="lg:col-span-2">
-            <KnowledgeGraph data={graphData} />
           </div>
         </div>
 
@@ -406,7 +336,7 @@ const CaseDetail: React.FC = () => {
 
           <TabsContent value="accused" className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {caseData.accused.map((accused: any) => (
+              {caseData.accused.map((accused: Accused) => (
                 <Card key={accused.id}>
                   <CardContent className="pt-6">
                     <div className="flex items-start gap-4">
@@ -453,49 +383,73 @@ const CaseDetail: React.FC = () => {
 
           <TabsContent value="evidence" className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {caseData.evidence.map((evidence: any) => {
+              {caseData.evidence.map((evidence: Evidence) => {
+                const item = evidence as EvidenceWithFallback;
+                const evidenceId = item.id || item.evidence_id || item.metadata?.evidence_id;
+                const evidenceName = item.name || item.filename || item.metadata?.filename || 'Unknown Evidence';
+                const evidenceType = item.type || item.metadata?.content_type || 'other';
+                const uploadedAtRaw = item.uploadedAt || item.uploaded_at || item.metadata?.uploaded_at;
+                const uploadedAtDate = uploadedAtRaw ? new Date(uploadedAtRaw) : null;
+                const uploadedAtLabel = uploadedAtDate && !Number.isNaN(uploadedAtDate.getTime())
+                  ? uploadedAtDate.toLocaleDateString()
+                  : 'Unknown date';
                 const Icon = evidenceIcons[evidence.type] || File;
+
                 return (
-                  <Card key={evidence.id} className="hover:shadow-md transition-shadow cursor-pointer">
+                  <Card key={evidenceId || evidenceName} className="hover:shadow-md transition-shadow cursor-pointer">
                     <CardContent className="pt-6">
                       <div className="flex items-start gap-3">
                         <div className="p-3 bg-primary/10 rounded-lg">
                           <Icon className="h-6 w-6 text-primary" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <h4 className="font-medium truncate">{evidence.name}</h4>
+                          <h4 className="font-medium truncate">{evidenceName}</h4>
                           <p className="text-sm text-muted-foreground capitalize">
-                            {evidence.type}
+                            {evidenceType}
                           </p>
                           <p className="text-xs text-muted-foreground mt-1">
-                            Uploaded: {new Date(evidence.uploadedAt).toLocaleDateString()}
+                            Uploaded: {uploadedAtLabel}
                           </p>
                           {canViewMetadata && evidence.metadata && (
-                            <div className="mt-2 pt-2 border-t border-border">
-                              {Object.entries(evidence.metadata).map(([key, value]) => (
-                                <p key={key} className="text-xs text-muted-foreground">
-                                  <span className="capitalize">{key}:</span> {String(value)}
-                                </p>
-                              ))}
+                            <div className="mt-2 pt-2 border-t border-border text-xs text-muted-foreground space-y-2">
+                              {evidence.metadata.uploader && (
+                                <p><span className="capitalize">Uploader:</span> {evidence.metadata.uploader}</p>
+                              )}
+                              {evidence.metadata.uploader_role && (
+                                <p><span className="capitalize">Role:</span> {evidence.metadata.uploader_role}</p>
+                              )}
+                              {evidence.metadata.file_hash && (
+                                <p><span className="capitalize">File Hash:</span> {evidence.metadata.file_hash}</p>
+                              )}
+                              {(evidence.metadata.blockchain?.tx_hash || evidence.metadata.tx_hash) && (
+                                <p><span className="capitalize">Transaction:</span> {evidence.metadata.blockchain?.tx_hash || evidence.metadata.tx_hash}</p>
+                              )}
+                              {evidence.metadata.blockchain?.provider && (
+                                <p><span className="capitalize">Blockchain:</span> {evidence.metadata.blockchain.provider}</p>
+                              )}
+                              {evidence.metadata.blockchain?.chain_id && (
+                                <p><span className="capitalize">Chain ID:</span> {evidence.metadata.blockchain.chain_id}</p>
+                              )}
+                              {evidence.metadata.blockchain?.contract_address && (
+                                <p className="break-all"><span className="capitalize">Contract:</span> {evidence.metadata.blockchain.contract_address}</p>
+                              )}
                             </div>
                           )}
                         </div>
-                        {canViewMetadata && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="ml-2 shrink-0"
-                            onClick={(e) => handleVerify(evidence.id, e)}
-                            disabled={verifyingId === evidence.id}
-                          >
-                            {verifyingId === evidence.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <ShieldCheck className="h-4 w-4 text-green-600" />
-                            )}
-                            <span className="sr-only">Verify</span>
-                          </Button>
-                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="ml-2 shrink-0 flex items-center gap-2"
+                          onClick={(e) => evidenceId && handleVerify(evidenceId, e)}
+                          disabled={!evidenceId || verifyingId === evidenceId}
+                        >
+                          {verifyingId === evidenceId ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <ShieldCheck className="h-4 w-4 text-green-600" />
+                          )}
+                          Verify
+                        </Button>
                       </div>
                     </CardContent>
                   </Card>
@@ -538,7 +492,7 @@ const CaseDetail: React.FC = () => {
                   <div className="mt-6 pt-4 border-t border-border">
                     <h4 className="font-medium mb-4">Evidence Metadata</h4>
                     <div className="space-y-3">
-                      {caseData.evidence.map((ev: any) => (
+                      {caseData.evidence.map((ev: Evidence) => (
                         <div key={ev.id} className="p-3 bg-muted/50 rounded-lg">
                           <p className="font-medium text-sm">{ev.name}</p>
                           {ev.metadata && (

@@ -22,7 +22,6 @@
     "noUnusedParameters": false,
     "noImplicitAny": false,
     "noFallthroughCasesInSwitch": false,
-    "baseUrl": ".",
     "ignoreDeprecations": "5.0",
     "paths": {
       "@/*": [

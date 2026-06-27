@@ -92,7 +92,7 @@ const Chatbot: React.FC = () => {
   return (
     <Layout>
       <div className="container py-8">
-        <div className="max-w-4xl mx-auto space-y-6">
+        <div className="max-w-6xl mx-auto space-y-6">
           <div>
             <h1 className="text-3xl font-bold">AI Assistant</h1>
             <p className="text-muted-foreground mt-1">
@@ -100,13 +100,13 @@ const Chatbot: React.FC = () => {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_1fr] gap-6">
             {/* Chat Area */}
-            <Card className="lg:col-span-3">
-              <CardContent className="p-0 flex flex-col h-[600px]">
+            <Card className="flex flex-col min-h-[680px]">
+              <CardContent className="p-0 flex flex-col min-h-[680px]">
                 {/* Messages */}
-                <ScrollArea className="flex-1 p-4">
-                  <div className="space-y-4">
+                <ScrollArea className="flex-1 p-4 overflow-hidden min-h-0">
+                  <div className="space-y-4 min-h-full">
                     {messages.map((message) => (
                       <div
                         key={message.id}
@@ -156,11 +156,11 @@ const Chatbot: React.FC = () => {
                         <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center shrink-0">
                           <Bot className="h-4 w-4 text-primary-foreground" />
                         </div>
-                        <div className="bg-muted rounded-lg px-4 py-3">
+                                <div className="bg-muted rounded-lg px-4 py-3">
                           <div className="flex gap-1">
                             <span className="w-2 h-2 rounded-full bg-muted-foreground animate-bounce" />
-                            <span className="w-2 h-2 rounded-full bg-muted-foreground animate-bounce [animation-delay:0.2s]" />
-                            <span className="w-2 h-2 rounded-full bg-muted-foreground animate-bounce [animation-delay:0.4s]" />
+                            <span className="w-2 h-2 rounded-full bg-muted-foreground animate-bounce delay-200" />
+                            <span className="w-2 h-2 rounded-full bg-muted-foreground animate-bounce delay-400" />
                           </div>
                         </div>
                       </div>

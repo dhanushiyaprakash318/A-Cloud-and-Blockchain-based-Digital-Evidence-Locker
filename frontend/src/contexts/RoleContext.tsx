@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 
 export type UserRole = 'police' | 'judge' | 'forensics';
@@ -7,6 +8,7 @@ interface RoleContextType {
   setRole: (role: UserRole) => void;
   canUpload: boolean;
   canViewMetadata: boolean;
+  canVerify: boolean;
   canSendPublicAlert: boolean;
 }
 
@@ -20,10 +22,11 @@ export const RoleProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const canUpload = role === 'police';
   const canViewMetadata = role === 'forensics';
+  const canVerify = role === 'police' || role === 'forensics';
   const canSendPublicAlert = role === 'police';
 
   return (
-    <RoleContext.Provider value={{ role, setRole, canUpload, canViewMetadata, canSendPublicAlert }}>
+    <RoleContext.Provider value={{ role, setRole, canUpload, canViewMetadata, canVerify, canSendPublicAlert }}>
       {children}
     </RoleContext.Provider>
   );

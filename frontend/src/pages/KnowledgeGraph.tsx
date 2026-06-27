@@ -1,312 +1,274 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { mockCases } from '@/data/mockCases';
-import { GitBranch, User, MapPin, FileText, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { GitBranch, RefreshCcw, Info } from 'lucide-react';
+import { cases } from '@/services/api';
+import { Case, KnowledgeGraphResponse } from '@/types/case';
+import KnowledgeGraph from '@/components/KnowledgeGraph';
 
-interface Node {
-  id: string;
-  type: 'case' | 'accused' | 'location' | 'evidence';
-  label: string;
-  x: number;
-  y: number;
-}
-
-interface Edge {
-  from: string;
-  to: string;
-  label?: string;
-}
-
-const KnowledgeGraph: React.FC = () => {
-  const [selectedNode, setSelectedNode] = useState<Node | null>(null);
-  const [zoom, setZoom] = useState(1);
-
-  // Generate nodes and edges from mock data
-  const nodes: Node[] = [];
-  const edges: Edge[] = [];
-
-  mockCases.forEach((c, caseIndex) => {
-    const caseNode: Node = {
-      id: `case-${c.id}`,
-      type: 'case',
-      label: c.caseNumber,
-      x: 400 + Math.cos(caseIndex * 1.2) * 200,
-      y: 300 + Math.sin(caseIndex * 1.2) * 150,
-    };
-    nodes.push(caseNode);
-
-    // Add accused nodes
-    c.accused.forEach((acc, accIndex) => {
-      const existingAccused = nodes.find(
-        (n) => n.type === 'accused' && n.label === acc.name
-      );
-      if (!existingAccused) {
-        nodes.push({
-          id: `accused-${acc.id}`,
-          type: 'accused',
-          label: acc.name,
-          x: caseNode.x + 120 + accIndex * 30,
-          y: caseNode.y + 80 + accIndex * 40,
-        });
-      }
-      edges.push({
-        from: `case-${c.id}`,
-        to: existingAccused?.id || `accused-${acc.id}`,
-        label: 'accused',
-      });
-    });
-
-    // Add location nodes
-    const existingLocation = nodes.find(
-      (n) => n.type === 'location' && n.label === c.district
-    );
-    if (!existingLocation) {
-      nodes.push({
-        id: `location-${c.district}`,
-        type: 'location',
-        label: c.district,
-        x: caseNode.x - 100,
-        y: caseNode.y - 80,
-      });
-    }
-    edges.push({
-      from: `case-${c.id}`,
-      to: `location-${c.district}`,
-      label: 'location',
-    });
+const KnowledgeGraphPage: React.FC = () => {
+  const [caseList, setCaseList] = useState<Case[]>([]);
+  const [selectedCaseId, setSelectedCaseId] = useState<string>('');
+  const [graphData, setGraphData] = useState<KnowledgeGraphResponse>({
+    case_id: '',
+    case_number: '',
+    nodes: [],
+    links: [],
   });
+  const [selectedNodeId, setSelectedNodeId] = useState<string>('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [loadingCases, setLoadingCases] = useState(true);
+  const [loadingGraph, setLoadingGraph] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const nodeColors = {
-    case: 'fill-primary',
-    accused: 'fill-destructive',
-    location: 'fill-success',
-    evidence: 'fill-warning',
-  };
+  useEffect(() => {
+    const loadCases = async () => {
+      setLoadingCases(true);
+      setError(null);
 
-  const nodeIcons = {
-    case: FileText,
-    accused: User,
-    location: MapPin,
-    evidence: FileText,
-  };
+      try {
+        const data = await cases.list();
+        const items = Array.isArray(data.cases) ? data.cases : [];
+        setCaseList(items);
+
+        if (!selectedCaseId && items.length > 0) {
+          setSelectedCaseId(items[0].id);
+        }
+      } catch (err) {
+        console.error(err);
+        setError('Unable to load cases for the knowledge graph.');
+      } finally {
+        setLoadingCases(false);
+      }
+    };
+
+    loadCases();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!selectedCaseId) return;
+
+    const loadGraph = async () => {
+      setLoadingGraph(true);
+      setError(null);
+
+      try {
+        const data = await cases.graph(selectedCaseId);
+        setGraphData(data);
+        setSelectedNodeId('');
+      } catch (err) {
+        console.error(err);
+        setGraphData({ case_id: '', case_number: '', nodes: [], links: [] });
+        setError('Unable to load knowledge graph for the selected case.');
+      } finally {
+        setLoadingGraph(false);
+      }
+    };
+
+    loadGraph();
+  }, [selectedCaseId, refreshKey]);
+
+  const filteredNodeIds = useMemo(() => {
+    if (!searchTerm) return [];
+    return graphData.nodes
+      .filter((node) => node.label.toLowerCase().includes(searchTerm.toLowerCase()))
+      .map((node) => node.id);
+  }, [graphData.nodes, searchTerm]);
+
+  const selectedNode = useMemo(
+    () => graphData.nodes.find((node) => node.id === selectedNodeId),
+    [graphData.nodes, selectedNodeId]
+  );
+
+  const connectedNodeIds = useMemo(() => {
+    if (!selectedNodeId) return [];
+    const neighbors = new Set<string>();
+
+    graphData.links.forEach((link) => {
+      if (link.source === selectedNodeId) neighbors.add(link.target);
+      if (link.target === selectedNodeId) neighbors.add(link.source);
+    });
+
+    return Array.from(neighbors);
+  }, [graphData.links, selectedNodeId]);
+
+  const nodeSummary = selectedNode
+    ? {
+        label: selectedNode.label,
+        type: selectedNode.group || 'Entity',
+        connections:
+          graphData.links.filter(
+            (link) => link.source === selectedNode.id || link.target === selectedNode.id
+          ).length,
+        evidenceId: selectedNode.evidence_id,
+      }
+    : null;
 
   return (
     <Layout>
       <div className="container py-8 space-y-6">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex flex-col lg:flex-row items-start lg:items-end justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold">Knowledge Graph</h1>
-            <p className="text-muted-foreground mt-1">
-              Interactive network visualization of case relationships
+            <p className="text-muted-foreground mt-1 max-w-2xl">
+              Visualize case entities, evidence, and investigator insights in a connected network. Select a case and explore relationships, evidence links, and entity context.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={() => setZoom(Math.max(0.5, zoom - 0.1))}>
-              <ZoomOut className="h-4 w-4" />
-            </Button>
-            <span className="text-sm text-muted-foreground w-12 text-center">
-              {Math.round(zoom * 100)}%
-            </span>
-            <Button variant="outline" size="icon" onClick={() => setZoom(Math.min(2, zoom + 0.1))}>
-              <ZoomIn className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="icon" onClick={() => setZoom(1)}>
-              <Maximize2 className="h-4 w-4" />
-            </Button>
+
+          <div className="grid w-full max-w-3xl grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-semibold text-slate-900 block mb-2">Choose case</label>
+              <Select value={selectedCaseId} onValueChange={(value) => setSelectedCaseId(value)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={loadingCases ? 'Loading cases...' : 'Select a case'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {caseList.map((item) => (
+                    <SelectItem key={item.id} value={item.id} className="border-b border-border/10">
+                      {item.caseNumber} - {item.district}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold text-slate-900 block mb-2">Search entities</label>
+              <Input
+                placeholder="Search node labels..."
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                autoComplete="off"
+              />
+            </div>
           </div>
         </div>
 
-        {/* Legend */}
-        <div className="flex flex-wrap gap-4">
-          <div className="flex items-center gap-2">
-            <div className="h-4 w-4 rounded-full bg-primary" />
-            <span className="text-sm">Cases</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="h-4 w-4 rounded-full bg-destructive" />
-            <span className="text-sm">Accused</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="h-4 w-4 rounded-full bg-success" />
-            <span className="text-sm">Locations</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="h-4 w-4 rounded-full bg-warning" />
-            <span className="text-sm">Evidence</span>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Graph Visualization */}
-          <Card className="lg:col-span-3 overflow-hidden">
-            <CardContent className="p-0">
-              <div className="relative bg-muted/30 h-[600px] overflow-hidden">
-                <svg
-                  width="100%"
-                  height="100%"
-                  viewBox="0 0 800 600"
-                  style={{ transform: `scale(${zoom})`, transformOrigin: 'center' }}
-                >
-                  {/* Edges */}
-                  {edges.map((edge, index) => {
-                    const fromNode = nodes.find((n) => n.id === edge.from);
-                    const toNode = nodes.find((n) => n.id === edge.to);
-                    if (!fromNode || !toNode) return null;
-                    return (
-                      <line
-                        key={index}
-                        x1={fromNode.x}
-                        y1={fromNode.y}
-                        x2={toNode.x}
-                        y2={toNode.y}
-                        stroke="hsl(var(--border))"
-                        strokeWidth="1"
-                        strokeDasharray="4"
-                      />
-                    );
-                  })}
-
-                  {/* Nodes */}
-                  {nodes.map((node) => {
-                    const Icon = nodeIcons[node.type];
-                    const isSelected = selectedNode?.id === node.id;
-                    return (
-                      <g
-                        key={node.id}
-                        transform={`translate(${node.x}, ${node.y})`}
-                        onClick={() => setSelectedNode(node)}
-                        className="cursor-pointer"
-                      >
-                        <circle
-                          r={isSelected ? 28 : 24}
-                          className={`${nodeColors[node.type]} transition-all duration-200`}
-                          opacity={isSelected ? 1 : 0.8}
-                          stroke={isSelected ? 'hsl(var(--foreground))' : 'none'}
-                          strokeWidth={isSelected ? 3 : 0}
-                        />
-                        <text
-                          y={40}
-                          textAnchor="middle"
-                          className="fill-foreground text-xs font-medium"
-                          style={{ fontSize: '10px' }}
-                        >
-                          {node.label.length > 15 ? node.label.substring(0, 15) + '...' : node.label}
-                        </text>
-                      </g>
-                    );
-                  })}
-                </svg>
-
-                {/* Empty state overlay */}
-                <div className="absolute bottom-4 left-4 text-sm text-muted-foreground">
-                  Click on nodes to see details
-                </div>
-              </div>
-            </CardContent>
+        {error ? (
+          <Card className="border border-destructive/20 bg-destructive/5 p-4">
+            <div className="flex items-center gap-3">
+              <Info className="h-5 w-5 text-destructive" />
+              <p className="text-sm text-destructive">{error}</p>
+            </div>
           </Card>
+        ) : null}
 
-          {/* Node Details Panel */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <GitBranch className="h-5 w-5" />
-                Node Details
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {selectedNode ? (
-                <div className="space-y-4">
-                  <div>
-                    <Badge
-                      variant="outline"
-                      className={
-                        selectedNode.type === 'case'
-                          ? 'bg-primary/10 text-primary border-primary/20'
-                          : selectedNode.type === 'accused'
-                          ? 'bg-destructive/10 text-destructive border-destructive/20'
-                          : selectedNode.type === 'location'
-                          ? 'bg-success/10 text-success border-success/20'
-                          : 'bg-warning/10 text-warning border-warning/20'
-                      }
-                    >
-                      {selectedNode.type.charAt(0).toUpperCase() + selectedNode.type.slice(1)}
-                    </Badge>
+        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+          <div className="xl:col-span-3 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm text-muted-foreground">Case</p>
+                <h2 className="text-xl font-semibold">{graphData.case_number || 'No case selected'}</h2>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setRefreshKey((prev) => prev + 1)}
+                disabled={loadingGraph || !selectedCaseId}
+              >
+                <RefreshCcw className="h-4 w-4 mr-2" />
+                Refresh graph
+              </Button>
+            </div>
+
+            <Card className="min-h-[680px]">
+              <CardContent className="p-4">
+                {loadingGraph ? (
+                  <div className="flex min-h-[520px] items-center justify-center text-muted-foreground">
+                    Loading graph data...
                   </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Label</p>
-                    <p className="font-medium">{selectedNode.label}</p>
+                ) : (
+                  <KnowledgeGraph
+                    data={{ nodes: graphData.nodes, links: graphData.links }}
+                    selectedNodeId={selectedNodeId}
+                    highlightedNodeIds={selectedNodeId ? [selectedNodeId, ...connectedNodeIds] : filteredNodeIds}
+                    searchTerm={searchTerm}
+                    onNodeClick={(node) => setSelectedNodeId(String(node.id))}
+                    onBackgroundClick={() => setSelectedNodeId('')}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                  <GitBranch className="h-5 w-5" />
+                  Graph summary
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 text-sm text-slate-700">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-lg bg-slate-50 p-3">
+                    <p className="text-muted-foreground text-xs uppercase tracking-[0.2em]">Nodes</p>
+                    <p className="mt-2 text-lg font-semibold">{graphData.node_count ?? graphData.nodes.length}</p>
                   </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Connections</p>
-                    <p className="font-medium">
-                      {edges.filter(
-                        (e) => e.from === selectedNode.id || e.to === selectedNode.id
-                      ).length}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Position</p>
-                    <p className="font-mono text-sm">
-                      x: {Math.round(selectedNode.x)}, y: {Math.round(selectedNode.y)}
-                    </p>
+                  <div className="rounded-lg bg-slate-50 p-3">
+                    <p className="text-muted-foreground text-xs uppercase tracking-[0.2em]">Connections</p>
+                    <p className="mt-2 text-lg font-semibold">{graphData.link_count ?? graphData.links.length}</p>
                   </div>
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Select a node from the graph to view its details
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="text-muted-foreground text-xs uppercase tracking-[0.2em]">Evidence files</p>
+                  <p className="mt-2 text-lg font-semibold">{graphData.evidence_count ?? 0}</p>
+                </div>
+              </CardContent>
+            </Card>
 
-        {/* Stats
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <p className="text-3xl font-bold text-primary">
-                  {nodes.filter((n) => n.type === 'case').length}
-                </p>
-                <p className="text-sm text-muted-foreground">Cases</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <p className="text-3xl font-bold text-destructive">
-                  {nodes.filter((n) => n.type === 'accused').length}
-                </p>
-                <p className="text-sm text-muted-foreground">Accused Persons</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <p className="text-3xl font-bold text-success">
-                  {nodes.filter((n) => n.type === 'location').length}
-                </p>
-                <p className="text-sm text-muted-foreground">Locations</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <p className="text-3xl font-bold text-warning">{edges.length}</p>
-                <p className="text-sm text-muted-foreground">Connections</p>
-              </div>
-            </CardContent>
-          </Card>
-        </div> */}
+            <Card className="sticky top-6">
+              <CardHeader>
+                <CardTitle className="text-base font-semibold">Node details</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 text-sm text-slate-700">
+                {selectedNode ? (
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-muted-foreground text-xs uppercase tracking-[0.2em]">Label</p>
+                      <p className="mt-1 text-base font-medium">{nodeSummary?.label}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs uppercase tracking-[0.2em]">Type</p>
+                      <p className="mt-1 text-base font-medium">{nodeSummary?.type}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs uppercase tracking-[0.2em]">Connections</p>
+                      <p className="mt-1 text-base font-medium">{nodeSummary?.connections}</p>
+                    </div>
+                    {nodeSummary?.evidenceId ? (
+                      <div>
+                        <p className="text-muted-foreground text-xs uppercase tracking-[0.2em]">Evidence ID</p>
+                        <p className="mt-1 break-all font-mono text-sm">{nodeSummary.evidenceId}</p>
+                      </div>
+                    ) : null}
+                    <Button variant="secondary" size="sm" onClick={() => setSelectedNodeId('')}>
+                      Clear selection
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="text-sm text-slate-600">
+                    Click on a node in the graph to inspect an entity or evidence connection.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </div>
     </Layout>
   );
 };
 
-export default KnowledgeGraph;
+export default KnowledgeGraphPage;

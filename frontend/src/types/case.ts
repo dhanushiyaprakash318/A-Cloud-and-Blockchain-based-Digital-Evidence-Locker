@@ -36,9 +36,50 @@ export interface Evidence {
     content_type?: string;
     uploader?: string;
     uploader_role?: string;
+    file_hash?: string;
     tx_hash?: string;
+    blockchain?: {
+      tx_hash?: string;
+      provider?: string;
+      contract_address?: string;
+      chain_id?: string | number;
+      block_number?: number;
+      gas_used?: number;
+      network?: string;
+      stored_hash?: string;
+      previous_hash?: string;
+      timestamp?: string;
+    };
     [key: string]: any;
   };
+}
+
+export interface KnowledgeGraphNode {
+  id: string;
+  label: string;
+  group?: string;
+  type?: string;
+  evidence_id?: string;
+  [key: string]: any;
+}
+
+export interface KnowledgeGraphLink {
+  source: string;
+  target: string;
+  label?: string;
+  evidence_id?: string;
+  [key: string]: any;
+}
+
+export interface KnowledgeGraphResponse {
+  case_id: string;
+  case_number?: string;
+  nodes: KnowledgeGraphNode[];
+  links: KnowledgeGraphLink[];
+  summary?: string;
+  evidence_count?: number;
+  node_count?: number;
+  link_count?: number;
 }
 
 export interface Case {
@@ -54,6 +95,10 @@ export interface Case {
   latitude: number;
   longitude: number;
   description?: string;
+  aiSummary?: string;
+  contrabandType?: string;
+  contrabandQuantity?: string;
+  vehicleDetails?: string;
   accused: Accused[];
   evidence: Evidence[];
   createdAt: string;
