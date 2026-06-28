@@ -31,16 +31,20 @@ app.include_router(router)
 
 @app.on_event('startup')
 def startup_event():
-    predictor = DeepfakePredictor()
-    app.state.predictor = predictor
-    log.info('Deepfake Detection Service Started')
-    log.info('Running on: http://localhost:8001')
-    log.info('Models Loaded')
-    log.info('✔ EfficientNet-B0')
-    log.info('✔ Swin Transformer')
-    log.info('✔ Xception')
-    log.info('✔ ResNet-34')
-    log.info('Ready for Prediction')
+    try:
+        predictor = DeepfakePredictor()
+        app.state.predictor = predictor
+        log.info('Deepfake Detection Service Started')
+        log.info('Running on: http://localhost:8001')
+        log.info('Models Loaded')
+        log.info('✔ EfficientNet-B0')
+        log.info('✔ Swin Transformer')
+        log.info('✔ Xception')
+        log.info('✔ ResNet-34')
+        log.info('Ready for Prediction')
+    except Exception as e:
+        log.error(f'Failed to initialize predictor: {str(e)}', exc_info=True)
+        raise
 
 
 @app.get('/')

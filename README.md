@@ -233,6 +233,10 @@ This runs the user interface.
 cd frontend
 npm run dev
 ```
+### Terminal 5:deepfake
+cd DeepfakeDetector/backend
+pip install -r requirements.txt
+uvicorn main:app --reload --host 0.0.0.0 --port 8000   #python main.py
 > Open your browser at `http://localhost:5173`.
 
 ---
