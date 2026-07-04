@@ -148,7 +148,7 @@ def classify_website(analysis: Dict[str, object]) -> Tuple[str, float, str]:
     if analysis['security_header_reasons']:
         reasons.extend(analysis['security_header_reasons'])
     if analysis['status_code'] and analysis['status_code'] >= 400:
-        reasons.append(f'HTTP status {analysis['status_code']}')
+        reasons.append(f"HTTP status {analysis['status_code']}")
 
     reason_text = 'Trusted Domain' if label == 'REAL' and not reasons else '; '.join(reasons)
     return label, round(confidence, 1), reason_text
