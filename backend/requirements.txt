@@ -7,7 +7,6 @@ boto3
 pydantic-settings
 web3
 google-genai
-httpx
-pytest
-docling
+requests
+python-dotenv
 
