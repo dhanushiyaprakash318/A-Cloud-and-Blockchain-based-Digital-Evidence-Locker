@@ -8,18 +8,19 @@ import {
 } from '@/types/case';
 
 // Determine API URL based on environment
-let activeBaseUrl = '';
-
-const getApiUrl = () => {
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
+const getApiBaseUrl = () => {
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
   }
-  return 'http://localhost:8000/api/v1';
+  return 'http://localhost:8000';
 };
 
-const API_URL = getApiUrl();
-activeBaseUrl = API_URL;
-console.log('🔗 API URL configured as:', API_URL);
+const API_BASE = getApiBaseUrl().replace(/\/$/, '');
+const API_URL = `${API_BASE}/api/v1`;
+
+let activeBaseUrl = API_URL;
+console.log('🔗 API Base configured as:', API_BASE);
+console.log('🔗 Full API URL configured as:', API_URL);
 
 const api = axios.create({
   baseURL: API_URL,

@@ -83,6 +83,8 @@ const DeepfakeDetector: React.FC = () => {
         return 'Deepfake analysis failed. Please retry.';
     };
 
+    const DEEPFAKE_BASE_URL = import.meta.env.VITE_DEEPFAKE_BASE_URL ?? 'http://localhost:8001';
+
     const handleAnalyze = async () => {
         if (!file) return;
 
@@ -94,9 +96,9 @@ const DeepfakeDetector: React.FC = () => {
         let endpoint = '';
 
         if (fileType.startsWith('image/')) {
-            endpoint = 'http://localhost:8001/predict/image';
+            endpoint = `${DEEPFAKE_BASE_URL}/predict/image`;
         } else if (fileType.startsWith('video/')) {
-            endpoint = 'http://localhost:8001/predict/video';
+            endpoint = `${DEEPFAKE_BASE_URL}/predict/video`;
         } else {
             setError('Only image and video files are supported for deepfake analysis.');
             setLoading(false);
@@ -129,7 +131,7 @@ const DeepfakeDetector: React.FC = () => {
         formData.append('url', urlInput);
 
         try {
-            const res = await axios.post('http://localhost:8001/predict/url', formData, {
+            const res = await axios.post(`${DEEPFAKE_BASE_URL}/predict/url`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
             setResult(res.data as AnalysisResult);
