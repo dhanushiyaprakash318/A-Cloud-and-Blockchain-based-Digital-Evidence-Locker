@@ -83,7 +83,10 @@ const DeepfakeDetector: React.FC = () => {
         return 'Deepfake analysis failed. Please retry.';
     };
 
-    const DEEPFAKE_BASE_URL = import.meta.env.VITE_DEEPFAKE_BASE_URL ?? 'http://localhost:8001';
+    const DEEPFAKE_BASE_URL = import.meta.env.VITE_DEEPFAKE_BASE_URL;
+    if (!DEEPFAKE_BASE_URL) {
+        throw new Error('[VITE_DEEPFAKE_BASE_URL] environment variable is required.');
+    }
 
     const handleAnalyze = async () => {
         if (!file) return;

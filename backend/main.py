@@ -13,24 +13,10 @@ if sys.platform == "win32":
 
 app = FastAPI(title=settings.PROJECT_NAME, openapi_url=f"{settings.API_V1_STR}/openapi.json")
 
-# CORS
-origins = [
-    "http://localhost:5173",  # Vite default
-    "http://localhost:5174",  # Vite alternate
-    "http://localhost:3000",
-    "http://localhost:8000",
-    "http://localhost:8046",
-    "http://0.0.0.0:5173",
-    "http://0.0.0.0:5174",
-    "http://0.0.0.0:3000",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5174",
-    "http://127.0.0.1:3000",
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origin_regex="https://.*\\.vercel\\.app",
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -49,6 +35,8 @@ def read_root():
 
 @app.on_event("startup")
 async def startup_event():
+    print("CORS Middleware Loaded")
+    print("Allowed Origin Regex: https://.*\\.vercel\\.app")
     """Initialize database with seed data if empty"""
     from app.services.database import db
     
