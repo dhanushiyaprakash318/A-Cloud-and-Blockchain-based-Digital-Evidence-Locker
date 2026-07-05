@@ -6,12 +6,13 @@
       "contentHash": "854d2e6605d25a330a5ea97bc2add910",
       "sourceName": "contracts/EvidenceRegistry.sol",
       "solcConfig": {
-        "version": "0.8.19",
+        "version": "0.8.20",
         "settings": {
           "optimizer": {
-            "enabled": false,
+            "enabled": true,
             "runs": 200
           },
+          "evmVersion": "paris",
           "outputSelection": {
             "*": {
               "*": [

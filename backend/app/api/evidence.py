@@ -54,17 +54,38 @@ async def upload_evidence(
     file_obj = io.BytesIO(content)
     local_path = storage.upload_file(file_obj, f"{case_id}/{file.filename}", file_type)
 
-    # 4. Anchor hash on-chain (Hardhat EvidenceRegistry contract)
+    # 4. Anchor hash on-chain (optional)
     print(f"[Upload] evidence upload incoming for case: {case_id}, file: {file.filename}", flush=True)
 
-    blockchain_record = blockchain.store_hash_on_chain(
-        case_id=case_id,
-        evidence_id=evidence_id,
-        file_hash=file_hash,
-        file_type=file_type,
-        uploader_role=current_user.role,
-        previous_hash=""
-    )
+    try:
+        blockchain_record = blockchain.store_hash_on_chain(
+            case_id=case_id,
+            evidence_id=evidence_id,
+            file_hash=file_hash,
+            file_type=file_type,
+            uploader_role=current_user.role,
+            previous_hash=""
+        )
+    except Exception as e:
+        print(f"[Blockchain] Non-fatal error anchoring evidence: {e}", flush=True)
+        blockchain_record = {
+            "tx_hash": None,
+            "provider": "Blockchain Unavailable",
+            "contract_address": None,
+            "chain_id": None,
+            "network": blockchain.rpc_url,
+            "block_number": None,
+            "gas_used": None,
+            "timestamp": str(datetime.now()),
+            "evidence_id": evidence_id,
+            "case_id": case_id,
+            "file_hash": file_hash,
+            "stored_hash": file_hash,
+            "file_type": file_type,
+            "uploader_role": current_user.role,
+            "previous_hash": "",
+            "blockchain_status": "pending",
+        }
 
     print(f"[Blockchain] TX Hash       : {blockchain_record.get('tx_hash')}", flush=True)
     print(f"[Blockchain] Stored Hash   : {blockchain_record.get('stored_hash')}", flush=True)
@@ -78,8 +99,11 @@ async def upload_evidence(
         "uploader": current_user.username,
         "uploader_role": current_user.role,
         "file_hash": file_hash,       # SHA-256 stored in DB (for cross-check)
+        "timestamp": blockchain_record.get("timestamp") or str(datetime.now()),
         "tx_hash": blockchain_record.get("tx_hash"),
+        "block_number": blockchain_record.get("block_number"),
         "blockchain": blockchain_record,
+        "blockchain_status": blockchain_record.get("blockchain_status", "pending"),
         "url": local_path,            # Local path (used for re-read during verify)
         "local_path": local_path,     # Explicit local path
         "uploaded_at": str(datetime.now())
@@ -113,10 +137,11 @@ async def upload_evidence(
         "file_hash": file_hash,
         "tx_hash": blockchain_record.get("tx_hash"),
         "blockchain": blockchain_record,
+        "blockchain_status": blockchain_record.get("blockchain_status", "pending"),
         "local_path": local_path,
         "ai_summary": ai_result.get("summary"),
         "knowledge_graph": ai_result.get("graph"),
-        "message": "Evidence uploaded and anchored to blockchain successfully."
+        "message": "Evidence uploaded successfully. Blockchain anchoring is optional and will continue asynchronously if unavailable."
     }
 
 

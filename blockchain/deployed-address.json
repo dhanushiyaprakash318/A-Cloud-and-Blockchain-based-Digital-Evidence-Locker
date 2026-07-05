@@ -1,0 +1,7 @@
+{
+  "network": "sepolia",
+  "chainId": 11155111,
+  "contractAddress": "0xBa4d13E62aDcD7c9368929D2BdDA2E300bb0872d",
+  "rpcUrl": "https://eth-sepolia.g.alchemy.com/v2/CyAH2zArU9D9yE_T1pmNE",
+  "deployedAt": "2026-07-05T05:18:22.437Z"
+}

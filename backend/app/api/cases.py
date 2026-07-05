@@ -188,22 +188,50 @@ def create_case(case_in: CaseCreate):
         print(f"Generated SHA-256 Hash: {case_hash}")
         print(f"{'='*60}\n")
         
-        # Store on blockchain
-        blockchain_record = blockchain.store_hash_on_chain(
-            case_id=case_data["id"],
-            evidence_id=f"CASE_META_{case_data['id']}",
-            file_hash=case_hash,
-            file_type="Application/JSON (Case Metadata)",
-            uploader_role="System",
-            previous_hash=""
-        )
+        # Store on blockchain (optional)
+        try:
+            blockchain_record = blockchain.store_hash_on_chain(
+                case_id=case_data["id"],
+                evidence_id=f"CASE_META_{case_data['id']}",
+                file_hash=case_hash,
+                file_type="Application/JSON (Case Metadata)",
+                uploader_role="System",
+                previous_hash=""
+            )
+        except Exception as e:
+            print(f"[Blockchain] Non-fatal error storing case metadata: {e}")
+            blockchain_record = {
+                "tx_hash": None,
+                "provider": "Blockchain Unavailable",
+                "contract_address": None,
+                "chain_id": None,
+                "network": blockchain.rpc_url,
+                "block_number": None,
+                "gas_used": None,
+                "timestamp": str(datetime.now()),
+                "evidence_id": f"CASE_META_{case_data['id']}",
+                "case_id": case_data["id"],
+                "file_hash": case_hash,
+                "stored_hash": case_hash,
+                "file_type": "Application/JSON (Case Metadata)",
+                "uploader_role": "System",
+                "previous_hash": "",
+                "blockchain_status": "pending",
+            }
 
         case_data["hash"] = case_hash
+        case_data["timestamp"] = blockchain_record.get("timestamp") or str(datetime.now())
         case_data["tx_hash"] = blockchain_record.get("tx_hash")
+        case_data["block_number"] = blockchain_record.get("block_number")
         case_data["blockchain"] = blockchain_record
+        case_data["blockchain_status"] = blockchain_record.get("blockchain_status", "pending")
         
         db.create_case(case_data)
-        return case_data
+        return {
+            "case_created": True,
+            "case": case_data,
+            "blockchain_status": blockchain_record.get("blockchain_status", "pending")
+        }
     except Exception as e:
         print(f"Error creating case: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,16 +1,28 @@
 require("@nomicfoundation/hardhat-toolbox");
+require("dotenv").config();
 
-/** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
-    solidity: "0.8.19",
-    networks: {
-        hardhat: {
-            chainId: 1337 // Standard local chain ID
-        },
-        // Add localhost specifically so we can talk to `npx hardhat node`
-        localhost: {
-            url: "http://127.0.0.1:8545",
-            chainId: 1337
-        }
-    }
+  solidity: {
+    version: "0.8.20",
+    settings: {
+      optimizer: {
+        enabled: true,
+        runs: 200,
+      },
+    },
+  },
+  defaultNetwork: "hardhat",
+  networks: {
+    hardhat: {},
+    localhost: {
+      url: process.env.RPC_URL || "http://127.0.0.1:8545",
+      chainId: 31337,
+    },
+    sepolia: {
+      url: process.env.RPC_URL || "",
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+      chainId: 11155111,
+      timeout: 60000,
+    },
+  },
 };
