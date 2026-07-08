@@ -24,8 +24,20 @@ class StorageService:
                 self.s3_client = None
 
     def upload_file(self, file_obj: BinaryIO, filename: str, content_type: str) -> str:
+        # Basic validation: prevent accidental use of invalid path segments
+        # such as the literal string 'undefined' (commonly produced by
+        # frontends when a value is missing). Rejecting early avoids
+        # creating folders like `uploads/undefined/`.
+        invalid_segments = {"undefined", "null", "nan", ""}
+        # Normalize and split path components
+        path_parts = [p.strip().lower() for p in filename.split('/') if p is not None]
+        for part in path_parts:
+            if part in invalid_segments:
+                raise ValueError(f"Invalid path segment in filename: '{part}'")
+
         if self.s3_client and self.bucket_name:
             try:
+                print(f"[StorageService] Uploading to S3 bucket={self.bucket_name} key={filename} content_type={content_type}")
                 file_obj.seek(0)
                 extra_args = {'ContentType': content_type}
                 if settings.S3_ENCRYPTION:
@@ -55,39 +67,64 @@ class StorageService:
     def get_file_bytes(self, file_path: str) -> bytes:
         """
         Read file bytes from storage (local or S3).
+        Supports either a local path, an S3 URL, or an AWS metadata dictionary
+        containing bucket and object_key.
         """
-        # If it's an S3 URL or external URL, attempt to download it using the S3 client
-        if file_path.startswith("http") or "amazonaws.com" in file_path:
-            if self.s3_client and self.bucket_name:
+        bucket_name = self.bucket_name
+        object_key = None
+
+        if isinstance(file_path, dict):
+            bucket_name = file_path.get("bucket") or bucket_name
+            object_key = file_path.get("object_key") or file_path.get("key")
+            file_path = object_key
+
+        if object_key is None and isinstance(file_path, str):
+            if file_path.startswith("http") or "amazonaws.com" in file_path:
+                if self.s3_client and bucket_name:
+                    try:
+                        if "amazonaws.com/" in file_path:
+                            object_key = file_path.split("amazonaws.com/", 1)[1]
+                        elif bucket_name in file_path:
+                            object_key = file_path.split(bucket_name + "/", 1)[1]
+                        else:
+                            from urllib.parse import urlparse
+                            parsed = urlparse(file_path)
+                            object_key = parsed.path.lstrip('/')
+
+                        print(f"[StorageService] Fetching file from S3: Bucket={bucket_name} Key={object_key}")
+                        response = self.s3_client.get_object(Bucket=bucket_name, Key=object_key)
+                        return response['Body'].read()
+                    except Exception as e:
+                        print(f"[StorageService] Failed to fetch file from S3: {e}")
+                        # Fall through to HTTP fetch if URL is accessible directly
+                else:
+                    print(f"[StorageService] S3 client not configured, attempting HTTP download: {file_path}")
+
                 try:
-                    if "amazonaws.com/" in file_path:
-                        key = file_path.split("amazonaws.com/", 1)[1]
-                    elif self.bucket_name in file_path:
-                        key = file_path.split(self.bucket_name + "/", 1)[1]
-                    else:
-                        from urllib.parse import urlparse
-                        parsed = urlparse(file_path)
-                        key = parsed.path.lstrip('/')
-
-                    print(f"[StorageService] Fetching file from S3: Key={key}")
-                    response = self.s3_client.get_object(Bucket=self.bucket_name, Key=key)
-                    return response['Body'].read()
+                    from urllib.request import urlopen
+                    print(f"[StorageService] Downloading remote file via HTTP: {file_path}")
+                    with urlopen(file_path) as response:
+                        return response.read()
                 except Exception as e:
-                    print(f"[StorageService] Failed to fetch file from S3: {e}")
-                    # Fall through to HTTP fetch if URL is accessible directly
-            else:
-                print(f"[StorageService] S3 client not configured, attempting HTTP download: {file_path}")
+                    print(f"[StorageService] HTTP download failed: {e}")
+                    return None
 
+            if isinstance(file_path, str) and os.path.exists(file_path):
+                with open(file_path, "rb") as f:
+                    return f.read()
+
+            print(f"[StorageService] File not found locally: {file_path}")
+            return None
+
+        if self.s3_client and bucket_name and object_key:
             try:
-                from urllib.request import urlopen
-                print(f"[StorageService] Downloading remote file via HTTP: {file_path}")
-                with urlopen(file_path) as response:
-                    return response.read()
+                print(f"[StorageService] Fetching file from S3: Bucket={bucket_name} Key={object_key}")
+                response = self.s3_client.get_object(Bucket=bucket_name, Key=object_key)
+                return response['Body'].read()
             except Exception as e:
-                print(f"[StorageService] HTTP download failed: {e}")
-                return None
+                print(f"[StorageService] Failed to fetch file from S3: {e}")
 
-        if os.path.exists(file_path):
+        if isinstance(file_path, str) and os.path.exists(file_path):
             with open(file_path, "rb") as f:
                 return f.read()
 

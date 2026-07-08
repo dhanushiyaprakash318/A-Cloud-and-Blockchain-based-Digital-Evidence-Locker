@@ -5,6 +5,7 @@ from botocore.exceptions import ClientError
 from app.core.config import settings
 from typing import List, Dict, Any, Optional
 from decimal import Decimal
+from urllib.parse import urlparse
 
 # ── SERIALIZATION HELPERS FOR DYNAMODB ─────────────────────────
 def float_to_decimal(obj):
@@ -86,6 +87,50 @@ class DatabaseService:
         with open(self.local_db_path, 'w') as f:
             json.dump(data, f, indent=4)
 
+    def _normalize_evidence_metadata(self, metadata: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not metadata:
+            return None
+
+        normalized = dict(metadata)
+        blockchain = metadata.get("blockchain") if isinstance(metadata.get("blockchain"), dict) else {}
+
+        normalized["hash"] = metadata.get("hash") or metadata.get("file_hash")
+        normalized["transaction_hash"] = metadata.get("transaction_hash") or metadata.get("tx_hash")
+        normalized["bucket"] = metadata.get("bucket") or blockchain.get("bucket")
+        normalized["object_key"] = metadata.get("object_key") or metadata.get("key") or blockchain.get("object_key")
+
+        if not normalized.get("bucket") and isinstance(metadata.get("url"), str):
+            parsed = urlparse(metadata["url"])
+            if parsed.netloc and ".s3." in parsed.netloc:
+                normalized["bucket"] = parsed.netloc.split(".s3.", 1)[0]
+                normalized["object_key"] = parsed.path.lstrip("/")
+
+        if not normalized.get("object_key") and isinstance(metadata.get("local_path"), str):
+            parsed = urlparse(metadata["local_path"])
+            if parsed.netloc and ".s3." in parsed.netloc:
+                normalized["bucket"] = parsed.netloc.split(".s3.", 1)[0]
+                normalized["object_key"] = parsed.path.lstrip("/")
+
+        normalized["blockchain_status"] = (
+            metadata.get("blockchain_status")
+            or blockchain.get("blockchain_status")
+            or ("anchored" if normalized.get("transaction_hash") else "failed")
+        )
+        normalized["network"] = metadata.get("network") or blockchain.get("network")
+        normalized["contract_address"] = metadata.get("contract_address") or blockchain.get("contract_address")
+        normalized["timestamp"] = metadata.get("timestamp") or blockchain.get("timestamp")
+        normalized["previous_hash"] = metadata.get("previous_hash") or blockchain.get("previous_hash")
+        normalized["uploader_role"] = metadata.get("uploader_role") or blockchain.get("uploader_role")
+
+        return normalized
+
+    def _persist_normalized_evidence(self, metadata: Dict[str, Any]) -> None:
+        if self.evidence_table:
+            try:
+                self.evidence_table.put_item(Item=float_to_decimal(metadata))
+            except ClientError:
+                pass
+
     # ─────────────────────────────────────────────
     # CASES
     # ─────────────────────────────────────────────
@@ -148,11 +193,11 @@ class DatabaseService:
 
     def store_evidence_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Store or update evidence metadata in DB."""
+        normalized_metadata = self._normalize_evidence_metadata(metadata)
         if self.evidence_table:
             try:
-                db_item = float_to_decimal(metadata)
-                self.evidence_table.put_item(Item=db_item)
-                return metadata
+                self._persist_normalized_evidence(normalized_metadata)
+                return normalized_metadata
             except ClientError as e:
                 print(f"DynamoDB store_evidence_metadata Error: {e}. Falling back to local_db.json")
                 self._use_local_mode()
@@ -162,16 +207,16 @@ class DatabaseService:
 
         # Replace if exists
         for i, e in enumerate(evidence_list):
-            if e.get("evidence_id") == metadata.get("evidence_id"):
-                evidence_list[i] = metadata
+            if e.get("evidence_id") == normalized_metadata.get("evidence_id"):
+                evidence_list[i] = normalized_metadata
                 data["evidence"] = evidence_list
                 self._write_local_db(data)
-                return metadata
+                return normalized_metadata
 
-        evidence_list.append(metadata)
+        evidence_list.append(normalized_metadata)
         data["evidence"] = evidence_list
         self._write_local_db(data)
-        return metadata
+        return normalized_metadata
 
     def get_evidence_metadata(self, evidence_id: str) -> Optional[Dict[str, Any]]:
         """Get evidence metadata by evidence_id."""
@@ -179,7 +224,17 @@ class DatabaseService:
             try:
                 response = self.evidence_table.get_item(Key={'evidence_id': evidence_id})
                 item = response.get('Item')
-                return decimal_to_float(item) if item else None
+                if item:
+                    normalized = self._normalize_evidence_metadata(decimal_to_float(item))
+                    if normalized and (
+                        normalized.get("hash") != item.get("hash")
+                        or normalized.get("transaction_hash") != item.get("transaction_hash")
+                        or normalized.get("bucket") != item.get("bucket")
+                        or normalized.get("object_key") != item.get("object_key")
+                    ):
+                        self._persist_normalized_evidence(normalized)
+                    return normalized
+                return None
             except ClientError as e:
                 print(f"DynamoDB get_evidence_metadata Error: {e}. Falling back to local_db.json")
                 self._use_local_mode()
@@ -187,7 +242,7 @@ class DatabaseService:
         data = self._read_local_db()
         for e in data.get("evidence", []):
             if e.get("evidence_id") == evidence_id:
-                return e
+                return self._normalize_evidence_metadata(e)
         return None
 
     def list_case_evidence(self, case_id: str) -> List[Dict[str, Any]]:
@@ -205,7 +260,7 @@ class DatabaseService:
                 self._use_local_mode()
 
         data = self._read_local_db()
-        return [e for e in data.get("evidence", []) if e.get("case_id") == case_id]
+        return [self._normalize_evidence_metadata(e) for e in data.get("evidence", []) if e.get("case_id") == case_id]
 
     def add_evidence_to_case(self, case_id: str, evidence_metadata: Dict[str, Any]):
         """Add evidence entry into the case's evidence array."""

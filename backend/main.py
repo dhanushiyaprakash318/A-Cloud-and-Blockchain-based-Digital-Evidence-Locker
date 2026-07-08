@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api import cases, evidence, auth
+from app.api import ai_chat as ai_chat_api
 import os
 import sys
 
@@ -26,6 +27,9 @@ app.add_middleware(
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["auth"])
 app.include_router(evidence.router, prefix=f"{settings.API_V1_STR}/evidence", tags=["evidence"])
 app.include_router(cases.router, prefix=f"{settings.API_V1_STR}/cases", tags=["cases"])
+app.include_router(ai_chat_api.router, prefix=f"{settings.API_V1_STR}/ai", tags=["ai"])
+from app.api import bedrock as bedrock_api
+app.include_router(bedrock_api.router, prefix=f"{settings.API_V1_STR}/bedrock", tags=["bedrock"])
 from app.api import init as init_router
 app.include_router(init_router.router, prefix=f"{settings.API_V1_STR}/init", tags=["initialization"])
 

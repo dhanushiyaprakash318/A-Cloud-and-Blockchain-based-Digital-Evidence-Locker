@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from typing import Optional
+from urllib.parse import urlparse
 from app.api import auth
 from app.services.storage import storage
 from app.services.database import db
@@ -7,7 +8,9 @@ from app.services.blockchain import blockchain
 from app.services.ai import ai_service
 import uuid
 import os
+import requests
 import tempfile
+import json
 from datetime import datetime
 
 router = APIRouter()
@@ -38,7 +41,7 @@ async def upload_evidence(
     content = await file.read()
 
     # 2. Compute SHA-256 hash
-    file_hash = blockchain.calculate_hash(content)
+
     evidence_id = str(uuid.uuid4())
     file_type = file.content_type or "application/octet-stream"
 
@@ -46,49 +49,102 @@ async def upload_evidence(
     print(f"EVIDENCE UPLOAD: {file.filename}", flush=True)
     print(f"Evidence ID : {evidence_id}", flush=True)
     print(f"Case ID     : {case_id}", flush=True)
-    print(f"SHA-256 Hash: {file_hash}", flush=True)
+
     print(f"{'='*60}\n", flush=True)
 
     # 3. Save file to local storage
+    if not case_id or str(case_id).strip().lower() in {"undefined", "null", "nan", ""}:
+        raise HTTPException(status_code=400, detail=f"Invalid case_id received: {case_id}")
+
     import io
     file_obj = io.BytesIO(content)
-    local_path = storage.upload_file(file_obj, f"{case_id}/{file.filename}", file_type)
+    s3_object_key = f"{case_id}/{file.filename}"
+    try:
+        local_path = storage.upload_file(file_obj, s3_object_key, file_type)
+    except ValueError as ve:
+        # Surface a clear 400 Bad Request when filename contains invalid segments
+        raise HTTPException(status_code=400, detail=str(ve))
 
-    # 4. Anchor hash on-chain (optional)
-    print(f"[Upload] evidence upload incoming for case: {case_id}, file: {file.filename}", flush=True)
+    # 4. Compute file hash and anchor hash on-chain (optional)
+    lambda_key = s3_object_key
+    if isinstance(local_path, str) and local_path.startswith("http"):
+        parsed = urlparse(local_path)
+        lambda_key = parsed.path.lstrip('/')
+
+    lambda_event = {
+        "bucket": storage.bucket_name or "divel-evidence-vault",
+        "key": lambda_key,
+        "case_id": case_id,
+        "evidence_id": evidence_id,
+        "file_type": file_type,
+        "uploader_role": current_user.role,
+        "previous_hash": ""
+    }
+
+    print(f"[Upload] Sending metadata to Lambda...", flush=True)
+    print("[Upload] S3 bucket:", storage.bucket_name, flush=True)
+    print("[Upload] S3 object key:", lambda_key, flush=True)
+    print("[Upload] Lambda event:", json.dumps(lambda_event, indent=2), flush=True)
 
     try:
-        blockchain_record = blockchain.store_hash_on_chain(
-            case_id=case_id,
-            evidence_id=evidence_id,
-            file_hash=file_hash,
-            file_type=file_type,
-            uploader_role=current_user.role,
-            previous_hash=""
+        print("calling API Gateway Lambda for blockchain anchoring...", flush=True)
+        print(">>> Before requests.post()", flush=True)
+        response = requests.post(
+            "https://pjb7msvyze.execute-api.eu-north-1.amazonaws.com/evidence",
+            json=lambda_event,
+            timeout=30
         )
+        print(">>> After requests.post()", flush=True)
+
+        response.raise_for_status()
+        print(">>> Response status:", response.status_code, flush=True)
+        print("Status Code:", response.status_code, flush=True)
+        print("Response:", response.text, flush=True)
+        blockchain_record = response.json()
+        print(">>> Parsed JSON:", blockchain_record, flush=True)
+        print("\n========== BLOCKCHAIN RECORD ==========")
+        print(json.dumps(blockchain_record, indent=4))
+        print("=======================================\n")
+        print(f"[Lambda] Success:", blockchain_record)
+
     except Exception as e:
-        print(f"[Blockchain] Non-fatal error anchoring evidence: {e}", flush=True)
+        print("========== LAMBDA ERROR ==========", flush=True)
+        print(type(e), flush=True)
+        print(str(e), flush=True)
+
+        error_message = getattr(e, "message", None) or str(e)
         blockchain_record = {
-            "tx_hash": None,
-            "provider": "Blockchain Unavailable",
-            "contract_address": None,
-            "chain_id": None,
-            "network": blockchain.rpc_url,
-            "block_number": None,
-            "gas_used": None,
-            "timestamp": str(datetime.now()),
-            "evidence_id": evidence_id,
-            "case_id": case_id,
-            "file_hash": file_hash,
-            "stored_hash": file_hash,
-            "file_type": file_type,
-            "uploader_role": current_user.role,
-            "previous_hash": "",
-            "blockchain_status": "pending",
+            "transaction_hash": None,
+            "hash": None,
+            "message": "Lambda failed",
+            "blockchain_status": "failed",
+            "error": error_message,
+            "timestamp": str(datetime.now())
         }
 
-    print(f"[Blockchain] TX Hash       : {blockchain_record.get('tx_hash')}", flush=True)
-    print(f"[Blockchain] Stored Hash   : {blockchain_record.get('stored_hash')}", flush=True)
+        failed_metadata = {
+            "evidence_id": evidence_id,
+            "case_id": case_id,
+            "filename": file.filename,
+            "content_type": file_type,
+            "uploader": current_user.username,
+            "uploader_role": current_user.role,
+            "file_hash": None,
+            "timestamp": blockchain_record.get("timestamp"),
+            "tx_hash": None,
+            "block_number": None,
+            "blockchain": blockchain_record,
+            "blockchain_status": "failed",
+            "error": error_message,
+            "url": local_path,
+            "local_path": local_path,
+            "uploaded_at": str(datetime.now())
+        }
+        try:
+            db.store_evidence_metadata(failed_metadata)
+            db.add_evidence_to_case(case_id, failed_metadata)
+        except Exception as audit_err:
+            print(f"[Audit] Failed to persist failed blockchain evidence record: {audit_err}", flush=True)
 
     # 5. Save metadata to local_db.json
     metadata = {
@@ -98,16 +154,19 @@ async def upload_evidence(
         "content_type": file_type,
         "uploader": current_user.username,
         "uploader_role": current_user.role,
-        "file_hash": file_hash,       # SHA-256 stored in DB (for cross-check)
+        "file_hash": blockchain_record.get("hash"),       # SHA-256 stored in DB (for cross-check)
         "timestamp": blockchain_record.get("timestamp") or str(datetime.now()),
-        "tx_hash": blockchain_record.get("tx_hash"),
+        "tx_hash": blockchain_record.get("transaction_hash"),
         "block_number": blockchain_record.get("block_number"),
         "blockchain": blockchain_record,
-        "blockchain_status": blockchain_record.get("blockchain_status", "pending"),
+       "blockchain_status": "anchored" if blockchain_record.get("transaction_hash") else "failed",
         "url": local_path,            # Local path (used for re-read during verify)
         "local_path": local_path,     # Explicit local path
         "uploaded_at": str(datetime.now())
     }
+    print("\n========== METADATA TO SAVE ==========")
+    print(json.dumps(metadata, indent=4, default=str))
+    print("======================================\n")
     db.store_evidence_metadata(metadata)
     db.add_evidence_to_case(case_id, metadata)
 
@@ -134,7 +193,7 @@ async def upload_evidence(
     return {
         "evidence_id": evidence_id,
         "filename": file.filename,
-        "file_hash": file_hash,
+        "file_hash": metadata.get("file_hash"),
         "tx_hash": blockchain_record.get("tx_hash"),
         "blockchain": blockchain_record,
         "blockchain_status": blockchain_record.get("blockchain_status", "pending"),
@@ -153,7 +212,10 @@ async def get_evidence_blockchain_record(evidence_id: str):
         raise HTTPException(status_code=404, detail=f"Evidence '{evidence_id}' not found in database.")
 
     blockchain_record = blockchain.get_evidence_chain_record(evidence_id)
-    blockchain_record["tx_hash"] = metadata.get("tx_hash") or blockchain_record.get("tx_hash")
+    blockchain_record["tx_hash"] = metadata.get("transaction_hash") or blockchain_record.get("tx_hash")
+    blockchain_record["contract_address"] = metadata.get("contract_address") or blockchain_record.get("contract_address")
+    blockchain_record["network"] = metadata.get("network") or blockchain_record.get("network")
+    blockchain_record["timestamp"] = metadata.get("timestamp") or blockchain_record.get("timestamp")
 
     return {
         "evidence_id": evidence_id,
@@ -176,19 +238,26 @@ async def verify_evidence(evidence_id: str):
     if not metadata:
         raise HTTPException(status_code=404, detail=f"Evidence '{evidence_id}' not found in database.")
 
+    print("Loaded metadata:", metadata)
+
     local_path = metadata.get("local_path") or metadata.get("url")
-    stored_tx_hash = metadata.get("tx_hash", "N/A")
-    db_hash = metadata.get("file_hash", "")
+    stored_tx_hash = metadata.get("transaction_hash", "N/A")
+    db_hash = metadata.get("hash", "")
+    bucket_name = metadata.get("bucket")
+    object_key = metadata.get("object_key") or metadata.get("key")
 
     print(f"\n{'='*60}")
     print(f"VERIFICATION REQUEST: {evidence_id}")
     print(f"File path   : {local_path}")
     print(f"Hash in DB  : {db_hash}")
-    print(f"TX Hash     : {stored_tx_hash}")
+    print(f"Transaction Hash: {stored_tx_hash}")
+    print(f"Bucket: {bucket_name}")
+    print(f"Object Key: {object_key}")
     print(f"{'='*60}")
 
-    # Step 2: Re-read file from disk
-    file_bytes = storage.get_file_bytes(local_path)
+    # Step 2: Download file from S3 using Lambda metadata when available
+    s3_metadata = {"bucket": bucket_name, "object_key": object_key} if bucket_name and object_key else local_path
+    file_bytes = storage.get_file_bytes(s3_metadata if bucket_name and object_key else local_path)
     if file_bytes is None:
         raise HTTPException(
             status_code=422,
@@ -199,20 +268,35 @@ async def verify_evidence(evidence_id: str):
     # Step 3: Recompute SHA-256 from disk
     recomputed_hash = blockchain.calculate_hash(file_bytes)
     print(f"Recomputed Hash: {recomputed_hash}")
+    print("Hash from DynamoDB:", db_hash)
+    print("Hashes Match:", recomputed_hash == db_hash)
 
-    # Step 4: Compare with on-chain hash (smart contract)
-    verification_result = blockchain.verify_integrity(evidence_id, recomputed_hash)
+    # Step 4: Compare with the trusted DynamoDB hash from Lambda metadata
+    hashes_match = recomputed_hash == db_hash if db_hash else False
 
-    # Determine final verdict
+    verification_result = {
+        "provider": "AWS Lambda / DynamoDB",
+        "verified": hashes_match,
+        "blockchain_record": {
+            "stored_hash": db_hash,
+            "transaction_hash": stored_tx_hash,
+            "timestamp": metadata.get("timestamp"),
+            "contract_address": metadata.get("contract_address"),
+            "network": metadata.get("network"),
+            "blockchain_status": metadata.get("blockchain_status"),
+            "uploader_role": metadata.get("uploader_role"),
+            "previous_hash": metadata.get("previous_hash"),
+        },
+    }
+
     on_chain_hash = verification_result.get("blockchain_record", {}).get("stored_hash", "")
-    hashes_match = (recomputed_hash == on_chain_hash) if on_chain_hash else verification_result.get("verified", False)
 
     # Fetch complete blockchain record for terminal audit logging (does not change verification logic)
     chain_record = blockchain.get_evidence_chain_record(evidence_id)
-    tx_hash = metadata.get("tx_hash") or chain_record.get("tx_hash")
-    block_number = chain_record.get("block_number")
-    contract_address = chain_record.get("contract_address")
-    timestamp = chain_record.get("timestamp") or verification_result.get("blockchain_record", {}).get("timestamp")
+    tx_hash = metadata.get("transaction_hash") or chain_record.get("tx_hash")
+    block_number = metadata.get("block_number") or chain_record.get("block_number")
+    contract_address = metadata.get("contract_address") or chain_record.get("contract_address")
+    timestamp = metadata.get("timestamp") or chain_record.get("timestamp") or verification_result.get("blockchain_record", {}).get("timestamp")
 
     print(f"\n{'='*60}", flush=True)
     print("VERIFICATION AUDIT", flush=True)
@@ -228,6 +312,12 @@ async def verify_evidence(evidence_id: str):
     print(f"{'='*60}\n", flush=True)
 
     blockchain_record = verification_result.get("blockchain_record", {})
+    blockchain_record["tx_hash"] = tx_hash
+    blockchain_record["contract_address"] = contract_address
+    blockchain_record["network"] = metadata.get("network") or blockchain_record.get("network")
+    blockchain_record["timestamp"] = timestamp
+    blockchain_record["previous_hash"] = metadata.get("previous_hash") or blockchain_record.get("previous_hash")
+    blockchain_record["uploader_role"] = metadata.get("uploader_role") or blockchain_record.get("uploader_role")
 
     return {
         "evidence_id": evidence_id,
@@ -241,6 +331,10 @@ async def verify_evidence(evidence_id: str):
             "stored_on_blockchain": on_chain_hash,
             "stored_in_db": db_hash,
             "match": hashes_match
+        },
+        "s3": {
+            "bucket": bucket_name,
+            "object_key": object_key,
         },
         "blockchain": {
             "tx_hash": stored_tx_hash,

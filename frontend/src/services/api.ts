@@ -24,9 +24,6 @@ console.log('🔗 Full API URL configured as:', API_URL);
 
 const api = axios.create({
   baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
   timeout: 30000, // 30 second timeout
 });
 
@@ -91,7 +88,7 @@ api.interceptors.response.use(
     const requestUrl = `${config?.baseURL ?? API_URL}${config?.url ?? ''}`;
     const method = config?.method?.toUpperCase() ?? 'UNKNOWN';
     const status = error.response?.status;
-    const responseData = error.response?.data as Record<string, any> | undefined;
+    const responseData = error.response?.data as Record<string, unknown> | undefined;
     const responseHeaders = error.response?.headers;
     const errorType = getErrorType(error);
 
@@ -131,14 +128,26 @@ export const auth = {
 
 export const evidence = {
   upload: async (caseId: string, file: File) => {
+    const normalizedCaseId = (caseId ?? '').toString().trim();
+    const invalids = new Set(['', 'undefined', 'null', 'nan']);
+    if (invalids.has(normalizedCaseId.toLowerCase())) {
+      console.error('Evidence upload missing or invalid caseId', { caseId, normalizedCaseId, fileName: file.name, fileType: file.type });
+      throw new Error('Missing valid caseId in evidence upload request.');
+    }
+
     const formData = new FormData();
-    formData.append('case_id', caseId);
+    formData.append('case_id', normalizedCaseId);
     formData.append('file', file);
-    const response = await api.post('/evidence/upload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+
+    console.log('📤 Evidence upload payload', {
+      caseId,
+      fileName: file.name,
+      fileType: file.type,
+      fileSize: file.size,
+      formDataKeys: Array.from(formData.keys()),
     });
+
+    const response = await api.post('/evidence/upload', formData);
     return response.data;
   },
   verify: async (evidenceId: string) => {
@@ -190,7 +199,7 @@ export const cases = {
         longitude: Number(data.longitude),
       };
       const response = await api.post('/cases', caseData);
-      return response.data;
+      return response.data.case;
     } catch (error) {
       console.error('Error creating case:', error);
       throw error;
@@ -229,6 +238,18 @@ export const cases = {
       return response.data;
     } catch (error) {
       console.error(`Error deleting case ${id}:`, error);
+      throw error;
+    }
+  },
+};
+
+export const assistant = {
+  query: async (text: string): Promise<any> => {
+    try {
+      const response = await api.post('/ai/query', { question: text });
+      return response.data;
+    } catch (error) {
+      console.error('Error querying assistant:', error);
       throw error;
     }
   },

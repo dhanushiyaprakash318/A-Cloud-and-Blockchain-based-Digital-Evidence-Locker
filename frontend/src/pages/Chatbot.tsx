@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { MessageSquare, Send, Bot, User, Sparkles } from 'lucide-react';
+import { assistant } from '@/services/api';
 import { cn } from '@/lib/utils';
 
 interface Message {
@@ -61,28 +62,34 @@ const Chatbot: React.FC = () => {
     setInput('');
     setIsTyping(true);
 
-    // Simulate AI response delay
-    setTimeout(() => {
-      const lowerInput = input.toLowerCase();
-      let response = mockResponses.default;
-      
-      for (const [key, value] of Object.entries(mockResponses)) {
-        if (key !== 'default' && lowerInput.includes(key)) {
-          response = value;
-          break;
-        }
-      }
-
+    try {
+      const response = await assistant.query(input);
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: response,
+        content: response.answer || mockResponses.default,
         timestamp: new Date(),
       };
-
       setMessages((prev) => [...prev, assistantMessage]);
+    } catch (error) {
+      const lowerInput = input.toLowerCase();
+      let fallback = mockResponses.default;
+      for (const [key, value] of Object.entries(mockResponses)) {
+        if (key !== 'default' && lowerInput.includes(key)) {
+          fallback = value;
+          break;
+        }
+      }
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: fallback,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+    } finally {
       setIsTyping(false);
-    }, 1500);
+    }
   };
 
   const handleSuggestedQuestion = (question: string) => {
@@ -128,20 +135,35 @@ const Chatbot: React.FC = () => {
                               : 'bg-muted'
                           )}
                         >
-                          <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                          <p
-                            className={cn(
-                              'text-xs mt-2',
-                              message.role === 'user'
-                                ? 'text-primary-foreground/70'
-                                : 'text-muted-foreground'
-                            )}
-                          >
-                            {message.timestamp.toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </p>
+                          {message.role === 'assistant' && message.content.includes('Case Number:') ? (
+                            // Split into individual case blocks and render each as a mini-card
+                            message.content
+                              .split(/\n\s*\n(?=Case Number:)/)
+                              .map((block, i) => (
+                                <div key={i} className="bg-background p-3 rounded-md mb-3">
+                                  {block.split('\n').map((line, j) => (
+                                    <div key={j} className="text-sm whitespace-pre-wrap">{line}</div>
+                                  ))}
+                                </div>
+                              ))
+                          ) : (
+                            <>
+                              <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                              <p
+                                className={cn(
+                                  'text-xs mt-2',
+                                  message.role === 'user'
+                                    ? 'text-primary-foreground/70'
+                                    : 'text-muted-foreground'
+                                )}
+                              >
+                                {message.timestamp.toLocaleTimeString([], {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </p>
+                            </>
+                          )}
                         </div>
                         {message.role === 'user' && (
                           <div className="h-8 w-8 rounded-full bg-secondary flex items-center justify-center shrink-0">

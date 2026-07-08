@@ -216,6 +216,12 @@ export const CaseUploadModal: React.FC<CaseUploadModalProps> = ({
       };
 
       const newCase = await cases.create(casePayload);
+      const uploadCaseId = newCase.id;
+
+      if (!uploadCaseId || uploadCaseId === 'undefined' || uploadCaseId === 'null') {
+        console.error('Invalid case ID returned from create case response', { newCase });
+        throw new Error('Unable to upload evidence because the created case ID is invalid.');
+      }
 
       // 2. Upload Evidence (if selected)
       if (evidenceFiles.length > 0) {
@@ -226,7 +232,7 @@ export const CaseUploadModal: React.FC<CaseUploadModalProps> = ({
 
         // Upload files sequentially
         for (const file of evidenceFiles) {
-          await evidence.upload(newCase.id, file);
+          await evidence.upload(uploadCaseId, file);
         }
       }
 

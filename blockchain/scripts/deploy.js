@@ -12,7 +12,8 @@ async function ensureNetworkConfig(networkName) {
         if (!process.env.RPC_URL) {
             throw new Error("Missing RPC_URL in .env for Sepolia deployment.");
         }
-        if (!process.env.PRIVATE_KEY) {
+        const privateKey = process.env.PRIVATE_KEY || process.env.BLOCKCHAIN_PRIVATE_KEY;
+        if (!privateKey) {
             throw new Error("Missing PRIVATE_KEY in .env for Sepolia deployment.");
         }
     }

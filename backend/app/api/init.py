@@ -26,7 +26,7 @@ def health_check():
             "error": str(e)
         }, 500
 
-@router.post("/init/seed")
+@router.post("/seed")
 def seed_database():
     """
     Manually trigger database seeding
@@ -64,7 +64,7 @@ def seed_database():
         print(f"Error during seeding: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/init/clear")
+@router.post("/clear")
 def clear_database():
     """
     Clear all data from database (for testing/reset)
@@ -95,7 +95,7 @@ def clear_database():
         print(f"Error clearing database: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/init/status")
+@router.get("/status")
 def init_status():
     """Get current database initialization status"""
     try:
@@ -114,3 +114,29 @@ def init_status():
             "error": str(e),
             "status": "error"
         }, 500
+
+
+@router.get("/env")
+def init_env():
+    """Return masked environment diagnostic info for troubleshooting (no secrets leaked)."""
+    def mask(val):
+        if not val:
+            return None
+        s = str(val)
+        if len(s) <= 8:
+            return s[0] + "*****"
+        return s[:4] + "******" + s[-4:]
+
+    aws_access_key = os.getenv("AWS_ACCESS_KEY_ID") or None
+    aws_secret = os.getenv("AWS_SECRET_ACCESS_KEY") or None
+    aws_session = os.getenv("AWS_SESSION_TOKEN") or None
+    private_key_present = bool(os.getenv("PRIVATE_KEY") or os.getenv("BLOCKCHAIN_PRIVATE_KEY"))
+
+    return {
+        "aws_access_key_id_masked": mask(aws_access_key),
+        "aws_secret_access_key_present": bool(aws_secret),
+        "aws_session_token_present": bool(aws_session),
+        "private_key_present": private_key_present,
+        "dynamodb_tables_configured": bool(db.cases_table and db.evidence_table),
+        "dynamodb_mode": "DynamoDB" if db.cases_table else "Local"
+    }

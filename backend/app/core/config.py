@@ -3,10 +3,30 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 import os
 
-# Load backend/.env early so values override stale process environment variables.
-dotenv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")
-if os.path.exists(dotenv_path):
-    load_dotenv(dotenv_path, override=True)
+# Load backend-related .env files early so values override stale process environment variables.
+# Search workspace root, backend root, and blockchain root for .env files.
+root_dotenv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")
+backend_dotenv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+project_root = os.path.dirname(
+    os.path.dirname(
+        os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))
+        )
+    )
+)
+
+blockchain_dotenv_path = os.path.join(project_root, "blockchain", ".env")
+print("Root .env:", root_dotenv_path)
+print("Backend .env:", backend_dotenv_path)
+print("Blockchain .env:", blockchain_dotenv_path)
+for dotenv_path in (root_dotenv_path, backend_dotenv_path, blockchain_dotenv_path):
+    print("Checking:", dotenv_path)
+
+    if os.path.exists(dotenv_path):
+        print("Loaded:", dotenv_path)
+        load_dotenv(dotenv_path, override=True)
+    else:
+        print("Not Found:", dotenv_path)
 
 class Settings(BaseSettings):
     # API
@@ -34,6 +54,9 @@ class Settings(BaseSettings):
     AI_PROVIDER: str = "gemini" # Options: gemini, local
     OLLAMA_BASE_URL: str = "http://localhost:11434/api/generate"
     OLLAMA_MODEL: str = "llama3"
+    # Fallback behavior for assistant when DB has no data.
+    # Options: 'strict' - only DB answers; 'hybrid' - fallback to LLM with disclaimer; 'general' - always use LLM
+    AI_FALLBACK_MODE: str = "hybrid"
 
     # Security
     SECRET_KEY: str = "supersecretkeydefaultsfortestingonly"
@@ -46,3 +69,9 @@ class Settings(BaseSettings):
     )
 
 settings = Settings()
+print("BLOCKCHAIN_RPC_URL =", settings.BLOCKCHAIN_RPC_URL)
+# Report whether a private key is available under either supported name
+print(
+    "BLOCKCHAIN_PRIVATE_KEY exists =",
+    (settings.BLOCKCHAIN_PRIVATE_KEY is not None) or bool(os.getenv("PRIVATE_KEY")) or bool(os.getenv("BLOCKCHAIN_PRIVATE_KEY"))
+)
