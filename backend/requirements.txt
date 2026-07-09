@@ -9,4 +9,6 @@ web3
 google-genai
 requests
 python-dotenv
+python-docx
+PyMuPDF
 

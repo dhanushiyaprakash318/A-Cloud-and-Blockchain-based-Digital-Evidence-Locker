@@ -40,6 +40,9 @@ export const Footer: React.FC = () => {
                 </Link>
               </li>
               <li>
+                {/* Upload link removed per UI change request */}
+              </li>
+              <li>
                 <Link to="/chatbot" className="text-muted-foreground hover:text-foreground transition-colors">
                   AI Assistant
                 </Link>

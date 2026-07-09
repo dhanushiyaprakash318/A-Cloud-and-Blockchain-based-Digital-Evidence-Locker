@@ -244,9 +244,24 @@ export const cases = {
 };
 
 export const assistant = {
+  chat: async (caseId: string, text: string): Promise<unknown> => {
+    try {
+      const response = await api.post('/assistant/chat', {
+        case_id: caseId,
+        question: text,
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error querying assistant chat:', error);
+      throw error;
+    }
+  },
   query: async (text: string): Promise<unknown> => {
     try {
-      const response = await api.post('/ai/query', { question: text });
+      const response = await api.post('/assistant/chat', {
+        case_id: '',
+        question: text,
+      });
       return response.data;
     } catch (error) {
       console.error('Error querying assistant:', error);

@@ -8,6 +8,7 @@ import Dashboard from "./pages/Dashboard";
 import CaseDetail from "./pages/CaseDetail";
 import KnowledgeGraph from "./pages/KnowledgeGraph";
 import Heatmap from "./pages/Heatmap";
+import EvidenceUpload from "./pages/EvidenceUpload";
 import Chatbot from "./pages/Chatbot";
 import NotFound from "./pages/NotFound";
 
@@ -26,6 +27,7 @@ const App = () => (
             <Route path="/case/:id" element={<CaseDetail />} />
             <Route path="/knowledge-graph" element={<KnowledgeGraph />} />
             <Route path="/heatmap" element={<Heatmap />} />
+            <Route path="/evidence-upload" element={<EvidenceUpload />} />
             <Route path="/chatbot" element={<Chatbot />} />
 
             <Route path="*" element={<NotFound />} />

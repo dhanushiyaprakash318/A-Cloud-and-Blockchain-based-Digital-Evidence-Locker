@@ -1,15 +1,13 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
-from typing import Optional
 from urllib.parse import urlparse
 from app.api import auth
 from app.services.storage import storage
 from app.services.database import db
 from app.services.blockchain import blockchain
-from app.services.ai import ai_service
+from app.services.text_extractor import extract_text
+from app.services.ai_summary import generate_summary
 import uuid
-import os
 import requests
-import tempfile
 import json
 from datetime import datetime
 
@@ -35,7 +33,7 @@ async def upload_evidence(
       3. Save file to local storage (uploads/)
       4. Store hash on-chain (Hardhat smart contract)
       5. Save metadata (including local_path + tx_hash) to local_db.json
-      6. Run AI summary
+      6. Trigger independent text extraction from S3 (non-blocking)
     """
     # 1. Read file content
     content = await file.read()
@@ -148,25 +146,79 @@ async def upload_evidence(
     db.store_evidence_metadata(metadata)
     db.add_evidence_to_case(case_id, metadata)
 
-    # 6. AI Summary (sync for MVP) — non-fatal
-    ai_result = {"summary": "", "graph": {"nodes": [], "links": []}}
+    # 6. AI text extraction + summarization for supported file types
+    # Determine basic file kind by extension or content type
+    lower_name = (file.filename or "").lower()
+    mime = (file_type or "").lower()
+
+    supported_text_types = {".pdf", ".docx", ".txt"}
+    _, dot_ext = (None, None)
+    if "." in lower_name:
+        dot_ext = lower_name[lower_name.rfind('.') :]
+
+    # Initialize processing flags and summary fields
+    ai_summary = None
+    text_extracted = False
+    summary_generated = False
+    processing_status = "NOT_SUPPORTED"
+
+    is_text_doc = (dot_ext in supported_text_types) or (mime in {"application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain"})
+    is_image = mime.startswith("image/")
+    is_video = mime.startswith("video/")
+
+    if is_text_doc:
+        processing_status = "IN_PROGRESS"
+        try:
+            extracted_text = extract_text(storage.bucket_name or "", lambda_key)
+            text_extracted = bool(extracted_text and extracted_text.strip())
+        except Exception as extraction_err:
+            print(f"[TextExtractor] Non-fatal extraction error: {extraction_err}")
+            extracted_text = ""
+            text_extracted = False
+
+        try:
+            if text_extracted:
+                summary_text = generate_summary(extracted_text)
+                ai_summary = summary_text or None
+                summary_generated = bool(ai_summary)
+                processing_status = "COMPLETED" if summary_generated else "FAILED"
+            else:
+                ai_summary = None
+                summary_generated = False
+                processing_status = "FAILED"
+        except Exception as summary_err:
+            print(f"[AISummary] Non-fatal summary generation error: {summary_err}")
+            ai_summary = None
+            summary_generated = False
+            processing_status = "FAILED"
+
+    elif is_image or is_video:
+        # As requested: do not attempt OCR or processing for images/videos
+        ai_summary = None
+        text_extracted = False
+        summary_generated = False
+        processing_status = "NOT_SUPPORTED"
+    else:
+        # Unknown type: mark as not supported to be safe
+        ai_summary = None
+        text_extracted = False
+        summary_generated = False
+        processing_status = "NOT_SUPPORTED"
+
+    # 7. Persist processing results back to DB and update case entry
     try:
-        temp_file_path = os.path.join(tempfile.gettempdir(), f"{evidence_id}_{file.filename}")
-        with open(temp_file_path, "wb") as f:
-            f.write(content)
+        # Update metadata with processing fields
+        metadata.update({
+            "ai_summary": ai_summary,
+            "text_extracted": text_extracted,
+            "summary_generated": summary_generated,
+            "processing_status": processing_status,
+        })
 
-        ai_result = ai_service.generate_summary(temp_file_path)
-
-        if os.path.exists(temp_file_path):
-            os.remove(temp_file_path)
-    except Exception as ai_err:
-        print(f"[AI] Non-fatal AI error: {ai_err}")
-
-    metadata["ai_summary"] = ai_result.get("summary", "")
-    metadata["knowledge_graph"] = ai_result.get("graph", {})
-
-    db.store_evidence_metadata(metadata)
-    db.update_evidence_in_case(case_id, evidence_id, metadata)
+        db.store_evidence_metadata(metadata)
+        db.update_evidence_in_case(case_id, evidence_id, metadata)
+    except Exception as persist_err:
+        print(f"[DB] Failed to persist processing results: {persist_err}")
 
     return {
         "evidence_id": evidence_id,
@@ -175,8 +227,8 @@ async def upload_evidence(
         "tx_hash": blockchain_record.get("tx_hash"),
         "blockchain": blockchain_record,
         "local_path": local_path,
-        "ai_summary": ai_result.get("summary"),
-        "knowledge_graph": ai_result.get("graph"),
+        "generated_summary": ai_summary,
+        "processing_status": processing_status,
         "message": "Evidence uploaded and anchored to blockchain successfully."
     }
 

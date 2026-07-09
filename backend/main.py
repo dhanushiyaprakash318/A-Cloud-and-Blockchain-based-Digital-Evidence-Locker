@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api import cases, evidence, auth
 from app.api import ai_chat as ai_chat_api
+from app.api import assistant as assistant_api
 import os
 import sys
 
@@ -17,7 +18,7 @@ app = FastAPI(title=settings.PROJECT_NAME, openapi_url=f"{settings.API_V1_STR}/o
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex="https://.*\\.vercel\\.app",
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -28,6 +29,7 @@ app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["aut
 app.include_router(evidence.router, prefix=f"{settings.API_V1_STR}/evidence", tags=["evidence"])
 app.include_router(cases.router, prefix=f"{settings.API_V1_STR}/cases", tags=["cases"])
 app.include_router(ai_chat_api.router, prefix=f"{settings.API_V1_STR}/ai", tags=["ai"])
+app.include_router(assistant_api.router, prefix=f"{settings.API_V1_STR}/assistant", tags=["assistant"])
 from app.api import bedrock as bedrock_api
 app.include_router(bedrock_api.router, prefix=f"{settings.API_V1_STR}/bedrock", tags=["bedrock"])
 from app.api import init as init_router

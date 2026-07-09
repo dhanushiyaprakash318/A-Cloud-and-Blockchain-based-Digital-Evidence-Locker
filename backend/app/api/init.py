@@ -18,7 +18,7 @@ def health_check():
             "status": "healthy",
             "database": "connected",
             "cases_count": len(cases),
-            "mode": "DynamoDB" if db.cases_table else "Local (local_db.json)"
+            "mode": "DynamoDB" if db.cases_table else "Unavailable"
         }
     except Exception as e:
         return {
@@ -82,11 +82,7 @@ def clear_database():
                 for item in response.get('Items', []):
                     db.evidence_table.delete_item(Key={'evidence_id': item['evidence_id']})
             print("[Init API] Cleared DynamoDB tables.")
-        
-        # Always reset local JSON DB
-        db._write_local_db({"cases": [], "evidence": []})
-        print("[Init API] Cleared local_db.json.")
-        
+
         return {
             "message": "Database cleared successfully",
             "status": "cleared"
@@ -100,7 +96,7 @@ def init_status():
     """Get current database initialization status"""
     try:
         cases = db.list_cases()
-        mode = "DynamoDB" if db.cases_table else "Local (local_db.json)"
+        mode = "DynamoDB" if db.cases_table else "Unavailable"
         
         return {
             "initialized": len(cases) > 0,

@@ -1,12 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { MessageSquare, Send, Bot, User, Sparkles } from 'lucide-react';
-import { assistant } from '@/services/api';
+import { assistant, cases } from '@/services/api';
+import { Case } from '@/types/case';
 import { cn } from '@/lib/utils';
+
+interface AssistantChatResponse {
+  answer?: string;
+  message?: string;
+  [key: string]: unknown;
+}
 
 interface Message {
   id: string;
@@ -37,19 +45,111 @@ const mockResponses: Record<string, string> = {
 };
 
 const Chatbot: React.FC = () => {
+  const [casesList, setCasesList] = useState<Case[]>([]);
+  const [selectedCaseId, setSelectedCaseId] = useState<string>('');
+  const [selectedCaseMeta, setSelectedCaseMeta] = useState<Case | null>(null);
+  const [caseMetaLoading, setCaseMetaLoading] = useState(false);
+  const [caseMetaError, setCaseMetaError] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
       role: 'assistant',
-      content: 'Hello! I\'m your AI assistant for the Case Management System. I can help you with:\n\n- Searching and summarizing cases\n- Finding information about accused persons\n- Analyzing crime patterns\n- Answering questions about the database\n\nHow can I assist you today?',
+      content: 'Hello! I\'m your AI assistant for the Case Management System. Select a case and ask a question to get answers from case evidence and summaries.',
       timestamp: new Date(),
     },
   ]);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [loadingCases, setLoadingCases] = useState(false);
+  const [caseFetchError, setCaseFetchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadCases = async () => {
+      setLoadingCases(true);
+      try {
+        const response = await cases.list();
+        const list = response.cases || [];
+        setCasesList(list);
+        if (list.length > 0) {
+          setSelectedCaseId((value) => value || list[0].id);
+        }
+      } catch (error) {
+        setCaseFetchError('Unable to load cases. Please try again later.');
+      } finally {
+        setLoadingCases(false);
+      }
+    };
+
+    loadCases();
+
+    // Load persisted chat from sessionStorage for this browser session
+    try {
+      const saved = sessionStorage.getItem('divel_chat_history');
+      const savedCase = sessionStorage.getItem('divel_chat_case');
+      if (savedCase) setSelectedCaseId(savedCase);
+      if (saved) {
+        try {
+          const rawParsed = JSON.parse(saved) as unknown;
+          if (Array.isArray(rawParsed)) {
+            const parsed: Message[] = rawParsed.map((m) => {
+              const item = m as Record<string, unknown>;
+              const id = typeof item.id === 'string' ? item.id : Date.now().toString();
+              const role = item.role === 'user' || item.role === 'assistant' ? (item.role as 'user' | 'assistant') : 'assistant';
+              const content = typeof item.content === 'string' ? item.content : '';
+              const timestamp = typeof item.timestamp === 'string' ? new Date(item.timestamp) : new Date();
+              return { id, role, content, timestamp } as Message;
+            });
+            if (parsed && parsed.length > 0) setMessages(parsed);
+          }
+        } catch (e) {
+          // ignore JSON parse errors
+        }
+      }
+    } catch (e) {
+      // ignore session load errors
+    }
+  }, []);
+
+  // Load case metadata when selectedCaseId changes
+  useEffect(() => {
+    const loadCaseMeta = async (id: string) => {
+      setCaseMetaLoading(true);
+      setCaseMetaError(null);
+      try {
+        const resp = await cases.get(id);
+        // resp shape: { case: ... } or the case object depending on API
+        const data = (resp && (resp.case || resp)) as Case;
+        setSelectedCaseMeta(data || null);
+      } catch (err) {
+        setCaseMetaError('Unable to load case details.');
+        setSelectedCaseMeta(null);
+      } finally {
+        setCaseMetaLoading(false);
+      }
+    };
+
+    if (selectedCaseId) {
+      loadCaseMeta(selectedCaseId);
+    } else {
+      setSelectedCaseMeta(null);
+      setCaseMetaError(null);
+    }
+  }, [selectedCaseId]);
 
   const handleSend = async () => {
     if (!input.trim()) return;
+
+    if (!selectedCaseId) {
+      const assistantMessage: Message = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: 'Please select a case before asking a question.',
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+      return;
+    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -63,27 +163,23 @@ const Chatbot: React.FC = () => {
     setIsTyping(true);
 
     try {
-      const response = await assistant.query(input);
+      const response = await assistant.chat(selectedCaseId, input) as AssistantChatResponse;
+      const raw = response.answer ?? response.message ?? '';
+
+      const assistantContent = formatAssistantAnswer(raw);
+
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: response.answer || mockResponses.default,
+        content: assistantContent || 'I cannot find this information in the uploaded evidence.',
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (error) {
-      const lowerInput = input.toLowerCase();
-      let fallback = mockResponses.default;
-      for (const [key, value] of Object.entries(mockResponses)) {
-        if (key !== 'default' && lowerInput.includes(key)) {
-          fallback = value;
-          break;
-        }
-      }
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: fallback,
+        content: "Sorry, I couldn't process your request. Please try again.",
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, assistantMessage]);
@@ -91,6 +187,93 @@ const Chatbot: React.FC = () => {
       setIsTyping(false);
     }
   };
+
+  // Persist chat history and selected case during the browser session
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('divel_chat_history', JSON.stringify(messages.map(m => ({ ...m, timestamp: m.timestamp.toISOString() }))));
+      if (selectedCaseId) sessionStorage.setItem('divel_chat_case', selectedCaseId);
+    } catch (e) {
+      // ignore storage errors
+    }
+    // Scroll to bottom on messages change
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+  }, [messages, selectedCaseId]);
+
+  function formatAssistantAnswer(raw: unknown): string {
+    if (raw === undefined || raw === null) return '';
+    if (typeof raw === 'string') return raw;
+    if (typeof raw === 'number') return String(raw);
+    if (Array.isArray(raw)) {
+      if (raw.length === 0) return '';
+      // Pretty-print an array of objects or strings
+      return raw.map((item, idx) => {
+        if (typeof item === 'string') return `${idx + 1}. ${item}`;
+        if (typeof item === 'number') return `${idx + 1}. ${item}`;
+        if (typeof item === 'object' && item !== null) {
+          const obj = item as Record<string, unknown>;
+          // compact summary for case search results
+          if (obj.caseNumber || obj.caseId) {
+            const id = (obj.caseNumber as string) || (obj.caseId as string) || (obj.id as string) || 'unknown';
+            const district = (obj.district as string) || (obj.location as string) || '';
+            const status = (obj.status as string) || '';
+            const date = (obj.dateOfOffence as string) || (obj.date as string) || '';
+            return `${idx + 1}. ${id} — ${district} — ${status} ${date ? '- ' + date : ''}`.trim();
+          }
+          // otherwise list key: value
+          return (
+            `${idx + 1}. ` + Object.entries(obj).map(([k, v]) => `${capitalize(k)}: ${String(v)}`).join(' | ')
+          );
+        }
+        return `${idx + 1}. ${String(item)}`;
+      }).join('\n\n');
+    }
+    if (typeof raw === 'object') {
+      const obj = raw as Record<string, unknown>;
+      return Object.entries(obj).map(([k, v]) => `${capitalize(k)}: ${String(v)}`).join('\n');
+    }
+    return String(raw);
+  }
+
+  function capitalize(s: string) {
+    if (!s) return s;
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
+  function escapeHtml(unsafe: string) {
+    return unsafe
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function renderMessageContent(message: Message, idx: number) {
+    const raw = message.content || '';
+    // If assistant returned a pure number and previous user asked 'how many', render a friendly sentence
+    if (message.role === 'assistant' && /^\s*\d+\s*$/.test(raw)) {
+      // find previous user message
+      const prevUser = [...messages].slice(0, idx).reverse().find((m) => m.role === 'user');
+      if (prevUser && /how many|count|total|how many cases/i.test(prevUser.content)) {
+        const n = raw.trim();
+        return <span dangerouslySetInnerHTML={{ __html: `Total cases: <strong>${escapeHtml(n)}</strong>` }} />;
+      }
+    }
+
+    // Basic safe markdown: **bold**, *italic* and preserve line breaks
+    let html = escapeHtml(String(raw));
+    // bold
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // italic
+    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    // convert lines to <br />
+    html = html.replace(/\r?\n/g, '<br/>');
+
+    return <span dangerouslySetInnerHTML={{ __html: html }} />;
+  }
 
   const handleSuggestedQuestion = (question: string) => {
     setInput(question);
@@ -110,6 +293,49 @@ const Chatbot: React.FC = () => {
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_1fr] gap-6">
             {/* Chat Area */}
             <Card className="flex flex-col min-h-[680px]">
+              <CardHeader className="flex flex-col gap-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <CardTitle>Case-aware AI Chat</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      Ask questions and get answers based on a selected case's evidence.
+                    </p>
+                  </div>
+                  <div className="mt-3 sm:mt-0">
+                    {caseMetaLoading ? (
+                      <p className="text-sm text-muted-foreground">Loading case details...</p>
+                    ) : caseMetaError ? (
+                      <p className="text-sm text-destructive">{caseMetaError}</p>
+                    ) : selectedCaseMeta ? (
+                      <div className="text-sm text-muted-foreground text-right">
+                        <div><strong>Case Number:</strong> {selectedCaseMeta.caseNumber || selectedCaseMeta.id}</div>
+                        <div><strong>Status:</strong> {selectedCaseMeta.status || 'Unknown'}</div>
+                        <div><strong>District:</strong> {selectedCaseMeta.district || selectedCaseMeta.location || 'Unknown'}</div>
+                        <div><strong>Date Reported:</strong> {selectedCaseMeta.dateOfReport || selectedCaseMeta.dateOfOffence || 'Unknown'}</div>
+                        <div><strong>Evidence Files:</strong> {(selectedCaseMeta.evidence || []).length}</div>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No case selected.</p>
+                    )}
+                  </div>
+                  <div className="space-y-2 sm:space-y-0 sm:flex sm:items-center sm:gap-2">
+                    <Select value={selectedCaseId} onValueChange={setSelectedCaseId} disabled={casesList.length === 0}>
+                      <SelectTrigger className="min-w-[220px]">
+                        <SelectValue placeholder={loadingCases ? 'Loading cases...' : 'Select a case'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {casesList.map((caseItem) => (
+                          <SelectItem key={caseItem.id} value={caseItem.id}>
+                            {caseItem.caseNumber} — {caseItem.district}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {caseFetchError && <p className="text-xs text-destructive">{caseFetchError}</p>}
+                  </div>
+                </div>
+              </CardHeader>
+
               <CardContent className="p-0 flex flex-col min-h-[680px]">
                 {/* Messages */}
                 <ScrollArea className="flex-1 p-4 overflow-hidden min-h-0">
@@ -136,7 +362,6 @@ const Chatbot: React.FC = () => {
                           )}
                         >
                           {message.role === 'assistant' && message.content.includes('Case Number:') ? (
-                            // Split into individual case blocks and render each as a mini-card
                             message.content
                               .split(/\n\s*\n(?=Case Number:)/)
                               .map((block, i) => (
@@ -148,7 +373,9 @@ const Chatbot: React.FC = () => {
                               ))
                           ) : (
                             <>
-                              <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                              <div className="text-sm">
+                                {renderMessageContent(message, messages.findIndex((m) => m.id === message.id))}
+                              </div>
                               <p
                                 className={cn(
                                   'text-xs mt-2',
@@ -178,7 +405,7 @@ const Chatbot: React.FC = () => {
                         <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center shrink-0">
                           <Bot className="h-4 w-4 text-primary-foreground" />
                         </div>
-                                <div className="bg-muted rounded-lg px-4 py-3">
+                        <div className="bg-muted rounded-lg px-4 py-3">
                           <div className="flex gap-1">
                             <span className="w-2 h-2 rounded-full bg-muted-foreground animate-bounce" />
                             <span className="w-2 h-2 rounded-full bg-muted-foreground animate-bounce delay-200" />
@@ -187,6 +414,7 @@ const Chatbot: React.FC = () => {
                         </div>
                       </div>
                     )}
+                    <div ref={bottomRef} />
                   </div>
                 </ScrollArea>
 
@@ -197,15 +425,16 @@ const Chatbot: React.FC = () => {
                       e.preventDefault();
                       handleSend();
                     }}
-                    className="flex gap-2"
+                    className="flex gap-2 flex-col md:flex-row"
                   >
                     <Input
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
-                      placeholder="Ask a question about cases..."
+                      placeholder={selectedCaseId ? 'Ask a question about the selected case...' : 'Select a case first'}
                       className="flex-1"
+                      disabled={!selectedCaseId}
                     />
-                    <Button type="submit" disabled={!input.trim() || isTyping}>
+                    <Button type="submit" disabled={!input.trim() || isTyping || !selectedCaseId}>
                       <Send className="h-4 w-4" />
                     </Button>
                   </form>

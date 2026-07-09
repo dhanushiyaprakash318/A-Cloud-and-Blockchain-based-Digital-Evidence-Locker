@@ -64,28 +64,24 @@ class DatabaseService:
                 print(f"Connected to DynamoDB Tables: {settings.DYNAMODB_TABLE_CASES}, {settings.DYNAMODB_TABLE_EVIDENCE}")
                 return
             except Exception as e:
-                print(f"Failed to connect to DynamoDB: {e}. Falling back to local_db.json")
-
-        self._use_local_mode()
+                print(f"Failed to connect to DynamoDB: {e}. DynamoDB-only mode enabled; no local fallback.")
+                self.cases_table = None
+                self.evidence_table = None
+                return
 
     def _use_local_mode(self):
         self.cases_table = None
         self.evidence_table = None
-        print("Running in Local Mode (Using local_db.json)")
-        self._init_local_db()
+        print("DynamoDB unavailable; no local fallback is configured.")
 
     def _init_local_db(self):
-        if not os.path.exists(self.local_db_path):
-            with open(self.local_db_path, 'w') as f:
-                json.dump({"cases": [], "evidence": []}, f)
+        pass
 
     def _read_local_db(self) -> Dict[str, Any]:
-        with open(self.local_db_path, 'r') as f:
-            return json.load(f)
+        raise RuntimeError("Local DB fallback disabled; DynamoDB connection required.")
 
     def _write_local_db(self, data: Dict[str, Any]):
-        with open(self.local_db_path, 'w') as f:
-            json.dump(data, f, indent=4)
+        raise RuntimeError("Local DB fallback disabled; DynamoDB connection required.")
 
     def _normalize_evidence_metadata(self, metadata: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         if not metadata:
@@ -142,11 +138,11 @@ class DatabaseService:
                 items = response.get('Items', [])
                 return decimal_to_float(items)
             except ClientError as e:
-                print(f"DynamoDB list_cases Error: {e}. Falling back to local_db.json")
+                print(f"DynamoDB list_cases Error: {e}. DynamoDB-only mode enabled.")
                 self._use_local_mode()
+                raise
 
-        data = self._read_local_db()
-        return data.get("cases", [])
+        raise RuntimeError("DynamoDB connection unavailable for list_cases.")
 
     def get_case(self, case_id: str) -> Optional[Dict[str, Any]]:
         if self.cases_table:
@@ -155,14 +151,11 @@ class DatabaseService:
                 item = response.get('Item')
                 return decimal_to_float(item) if item else None
             except ClientError as e:
-                print(f"DynamoDB get_case Error: {e}. Falling back to local_db.json")
+                print(f"DynamoDB get_case Error: {e}. DynamoDB-only mode enabled.")
                 self._use_local_mode()
+                raise
 
-        data = self._read_local_db()
-        for case in data.get("cases", []):
-            if case.get("id") == case_id:
-                return case
-        return None
+        raise RuntimeError("DynamoDB connection unavailable for get_case.")
 
     def create_case(self, case_data: Dict[str, Any]) -> Dict[str, Any]:
         if self.cases_table:
@@ -171,21 +164,11 @@ class DatabaseService:
                 self.cases_table.put_item(Item=db_item)
                 return case_data
             except ClientError as e:
-                print(f"DynamoDB create_case Error: {e}. Falling back to local_db.json")
+                print(f"DynamoDB create_case Error: {e}. DynamoDB-only mode enabled.")
                 self._use_local_mode()
+                raise
 
-        data = self._read_local_db()
-        # Replace if exists, else append
-        cases = data.get("cases", [])
-        for i, c in enumerate(cases):
-            if c.get("id") == case_data.get("id"):
-                cases[i] = case_data
-                data["cases"] = cases
-                self._write_local_db(data)
-                return case_data
-        data["cases"].append(case_data)
-        self._write_local_db(data)
-        return case_data
+        raise RuntimeError("DynamoDB connection unavailable for create_case.")
 
     # ─────────────────────────────────────────────
     # EVIDENCE METADATA
@@ -199,11 +182,11 @@ class DatabaseService:
                 self._persist_normalized_evidence(normalized_metadata)
                 return normalized_metadata
             except ClientError as e:
-                print(f"DynamoDB store_evidence_metadata Error: {e}. Falling back to local_db.json")
+                print(f"DynamoDB store_evidence_metadata Error: {e}. DynamoDB-only mode enabled.")
                 self._use_local_mode()
+                raise
 
-        data = self._read_local_db()
-        evidence_list = data.get("evidence", [])
+        raise RuntimeError("DynamoDB connection unavailable for store_evidence_metadata.")
 
         # Replace if exists
         for i, e in enumerate(evidence_list):
@@ -236,14 +219,11 @@ class DatabaseService:
                     return normalized
                 return None
             except ClientError as e:
-                print(f"DynamoDB get_evidence_metadata Error: {e}. Falling back to local_db.json")
+                print(f"DynamoDB get_evidence_metadata Error: {e}. DynamoDB-only mode enabled.")
                 self._use_local_mode()
+                raise
 
-        data = self._read_local_db()
-        for e in data.get("evidence", []):
-            if e.get("evidence_id") == evidence_id:
-                return self._normalize_evidence_metadata(e)
-        return None
+        raise RuntimeError("DynamoDB connection unavailable for get_evidence_metadata.")
 
     def list_case_evidence(self, case_id: str) -> List[Dict[str, Any]]:
         """List all evidence metadata for a case."""
@@ -256,66 +236,50 @@ class DatabaseService:
                 items = response.get('Items', [])
                 return decimal_to_float(items)
             except ClientError as e:
-                print(f"DynamoDB list_case_evidence Error: {e}. Falling back to local_db.json")
+                print(f"DynamoDB list_case_evidence Error: {e}. DynamoDB-only mode enabled.")
                 self._use_local_mode()
+                raise
 
-        data = self._read_local_db()
-        return [self._normalize_evidence_metadata(e) for e in data.get("evidence", []) if e.get("case_id") == case_id]
+        raise RuntimeError("DynamoDB connection unavailable for list_case_evidence.")
 
     def add_evidence_to_case(self, case_id: str, evidence_metadata: Dict[str, Any]):
         """Add evidence entry into the case's evidence array."""
-        if self.cases_table:
-            try:
-                case = self.get_case(case_id)
-                if case:
-                    if "evidence" not in case or not case["evidence"]:
-                        case["evidence"] = []
-                    # avoid duplicates
-                    existing_ids = [e.get("evidence_id") for e in case["evidence"]]
-                    if evidence_metadata.get("evidence_id") not in existing_ids:
-                        case["evidence"].append(evidence_metadata)
-                        self.create_case(case)
-                return
-            except ClientError as e:
-                print(f"DynamoDB add_evidence_to_case Error: {e}. Falling back to local_db.json")
-                self._use_local_mode()
+        if not self.cases_table:
+            raise RuntimeError("DynamoDB connection unavailable for add_evidence_to_case.")
 
-        data = self._read_local_db()
-        for case in data.get("cases", []):
-            if case.get("id") == case_id:
-                if "evidence" not in case:
+        try:
+            case = self.get_case(case_id)
+            if case:
+                if "evidence" not in case or not case["evidence"]:
                     case["evidence"] = []
                 # avoid duplicates
                 existing_ids = [e.get("evidence_id") for e in case["evidence"]]
                 if evidence_metadata.get("evidence_id") not in existing_ids:
                     case["evidence"].append(evidence_metadata)
-                break
-        self._write_local_db(data)
+                    self.create_case(case)
+            return
+        except ClientError as e:
+            print(f"DynamoDB add_evidence_to_case Error: {e}. DynamoDB-only mode enabled.")
+            self._use_local_mode()
+            raise
 
     def update_evidence_in_case(self, case_id: str, evidence_id: str, updated_metadata: Dict[str, Any]):
         """Update a specific evidence entry inside a case's evidence array."""
-        if self.cases_table:
-            try:
-                case = self.get_case(case_id)
-                if case and "evidence" in case:
-                    for i, e in enumerate(case["evidence"]):
-                        if e.get("evidence_id") == evidence_id:
-                            case["evidence"][i] = updated_metadata
-                            break
-                    self.create_case(case)
-                return
-            except ClientError as e:
-                print(f"DynamoDB update_evidence_in_case Error: {e}. Falling back to local_db.json")
-                self._use_local_mode()
+        if not self.cases_table:
+            raise RuntimeError("DynamoDB connection unavailable for update_evidence_in_case.")
 
-        data = self._read_local_db()
-        for case in data.get("cases", []):
-            if case.get("id") == case_id:
-                for i, e in enumerate(case.get("evidence", [])):
+        try:
+            case = self.get_case(case_id)
+            if case and "evidence" in case:
+                for i, e in enumerate(case["evidence"]):
                     if e.get("evidence_id") == evidence_id:
                         case["evidence"][i] = updated_metadata
                         break
-                break
-        self._write_local_db(data)
+                self.create_case(case)
+            return
+        except ClientError as e:
+            print(f"DynamoDB update_evidence_in_case Error: {e}. DynamoDB-only mode enabled.")
+            self._use_local_mode()
+            raise
 
 db = DatabaseService()
