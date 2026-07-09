@@ -1,2 +1,0 @@
-await signer.getAddress()
-const [signer] = await ethers.getSigners()

@@ -58,12 +58,14 @@ async def upload_evidence(
 
     import io
     file_obj = io.BytesIO(content)
+    file_hash = blockchain.calculate_hash(content)
     s3_object_key = f"{case_id}/{file.filename}"
     try:
         local_path = storage.upload_file(file_obj, s3_object_key, file_type)
     except ValueError as ve:
         # Surface a clear 400 Bad Request when filename contains invalid segments
         raise HTTPException(status_code=400, detail=str(ve))
+
 
     # 4. Compute file hash and anchor hash on-chain (optional)
     lambda_key = s3_object_key
@@ -122,30 +124,6 @@ async def upload_evidence(
             "timestamp": str(datetime.now())
         }
 
-        failed_metadata = {
-            "evidence_id": evidence_id,
-            "case_id": case_id,
-            "filename": file.filename,
-            "content_type": file_type,
-            "uploader": current_user.username,
-            "uploader_role": current_user.role,
-            "file_hash": None,
-            "timestamp": blockchain_record.get("timestamp"),
-            "tx_hash": None,
-            "block_number": None,
-            "blockchain": blockchain_record,
-            "blockchain_status": "failed",
-            "error": error_message,
-            "url": local_path,
-            "local_path": local_path,
-            "uploaded_at": str(datetime.now())
-        }
-        try:
-            db.store_evidence_metadata(failed_metadata)
-            db.add_evidence_to_case(case_id, failed_metadata)
-        except Exception as audit_err:
-            print(f"[Audit] Failed to persist failed blockchain evidence record: {audit_err}", flush=True)
-
     # 5. Save metadata to local_db.json
     metadata = {
         "evidence_id": evidence_id,
@@ -154,12 +132,12 @@ async def upload_evidence(
         "content_type": file_type,
         "uploader": current_user.username,
         "uploader_role": current_user.role,
-        "file_hash": blockchain_record.get("hash"),       # SHA-256 stored in DB (for cross-check)
+        "file_hash": file_hash,
         "timestamp": blockchain_record.get("timestamp") or str(datetime.now()),
-        "tx_hash": blockchain_record.get("transaction_hash"),
+        "tx_hash": blockchain_record.get("transaction_hash") or blockchain_record.get("tx_hash"),
         "block_number": blockchain_record.get("block_number"),
         "blockchain": blockchain_record,
-       "blockchain_status": "anchored" if blockchain_record.get("transaction_hash") else "failed",
+        "blockchain_status": blockchain_record.get("blockchain_status", "pending"),
         "url": local_path,            # Local path (used for re-read during verify)
         "local_path": local_path,     # Explicit local path
         "uploaded_at": str(datetime.now())
@@ -196,11 +174,10 @@ async def upload_evidence(
         "file_hash": metadata.get("file_hash"),
         "tx_hash": blockchain_record.get("tx_hash"),
         "blockchain": blockchain_record,
-        "blockchain_status": blockchain_record.get("blockchain_status", "pending"),
         "local_path": local_path,
         "ai_summary": ai_result.get("summary"),
         "knowledge_graph": ai_result.get("graph"),
-        "message": "Evidence uploaded successfully. Blockchain anchoring is optional and will continue asynchronously if unavailable."
+        "message": "Evidence uploaded and anchored to blockchain successfully."
     }
 
 

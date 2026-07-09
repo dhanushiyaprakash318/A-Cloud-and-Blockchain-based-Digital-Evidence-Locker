@@ -244,7 +244,7 @@ export const cases = {
 };
 
 export const assistant = {
-  query: async (text: string): Promise<any> => {
+  query: async (text: string): Promise<unknown> => {
     try {
       const response = await api.post('/ai/query', { question: text });
       return response.data;
