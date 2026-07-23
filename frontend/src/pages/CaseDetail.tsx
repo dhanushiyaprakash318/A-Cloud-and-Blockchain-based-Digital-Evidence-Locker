@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { useRole } from '@/contexts/RoleContext';
@@ -72,6 +72,7 @@ const CaseDetail: React.FC = () => {
   const [verifyingId, setVerifyingId] = React.useState<string | null>(null);
   const [caseData, setCaseData] = React.useState<Case | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [isSummarizing, setIsSummarizing] = React.useState(false);
 
   // Verification Dialog State
   const [verificationResult, setVerificationResult] = React.useState<VerificationResult | null>(null);
@@ -125,20 +126,31 @@ const CaseDetail: React.FC = () => {
     }
   };
 
-  // Derive Graph Data from all evidence
-  // Derive Aggregate Summary
-  const displaySummary = useMemo(() => {
-    if (!caseData) return "";
-    if (caseData.aiSummary) return caseData.aiSummary;
+  // Only show a summary once one has actually been generated (via the button) and persisted
+  // on the case; never auto-display an aggregate of raw per-evidence summaries.
+  const displaySummary = caseData?.aiSummary || "";
 
-    // Fallback: Aggregate summaries from recent evidence
-    const summaries = caseData.evidence
-      .filter((ev: Evidence) => Boolean(ev.metadata?.ai_summary))
-      .map((ev: Evidence) => `[Evidence: ${ev.name}]: ${ev.metadata?.ai_summary}`)
-      .join("\n\n");
-
-    return summaries || "";
-  }, [caseData]);
+  const handleGenerateSummary = async () => {
+    if (!caseData) return;
+    setIsSummarizing(true);
+    try {
+      const result = await cases.summarize(caseData.id);
+      setCaseData((prev) => (prev ? { ...prev, aiSummary: result.aiSummary } : prev));
+      toast({
+        title: "Summary generated",
+        description: "The case summary has been updated.",
+      });
+    } catch (error) {
+      console.error("Failed to generate case summary", error);
+      toast({
+        title: "Error",
+        description: "Failed to generate case summary",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSummarizing(false);
+    }
+  };
 
   if (loading) {
     return <Layout><div className="container py-8 text-center">Loading case details...</div></Layout>;
@@ -216,6 +228,32 @@ const CaseDetail: React.FC = () => {
 
           <TabsContent value="details" className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Card className="md:col-span-2">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Brain className="h-4 w-4" />
+                    AI Case Summary
+                  </CardTitle>
+                  <Button size="sm" variant="outline" onClick={handleGenerateSummary} disabled={isSummarizing}>
+                    {isSummarizing ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Brain className="h-4 w-4 mr-2" />
+                    )}
+                    {displaySummary ? "Refresh Summary" : "Generate Summary"}
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  {displaySummary ? (
+                    <p className="text-sm whitespace-pre-wrap">{displaySummary}</p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No summary yet. Click "Generate Summary" to create one from this case's evidence.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Location Information</CardTitle>

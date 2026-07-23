@@ -117,5 +117,34 @@ class PromptBuilder:
 
         return "\n".join(sections)
 
+    def build_case_summary_prompt(self, case: Dict[str, Any], evidence_summaries: List[str]) -> str:
+        sections = [
+            "You are Divel AI, an assistant for police investigators.\n"
+            "Write a single, coherent case summary using ONLY the information below.\n"
+            "Do NOT use outside knowledge or invent facts.\n"
+            "Weave the case details and evidence into a professional narrative "
+            "(a few short paragraphs), highlighting key people, events, and findings.\n",
+            "\nCase Details:",
+            self.case_to_text(case),
+        ]
+
+        accused = case.get("accused") or []
+        if accused:
+            sections.append("\nAccused:")
+            for person in accused:
+                sections.append(self.accused_to_text(person))
+                sections.append("")
+
+        if evidence_summaries:
+            sections.append("\nEvidence Summaries:")
+            for summary in evidence_summaries:
+                sections.append(f"- {summary}")
+        else:
+            sections.append("\nEvidence Summaries: None available")
+
+        sections.append("\nCase Summary:")
+
+        return "\n".join(sections)
+
 
 prompt_builder = PromptBuilder()

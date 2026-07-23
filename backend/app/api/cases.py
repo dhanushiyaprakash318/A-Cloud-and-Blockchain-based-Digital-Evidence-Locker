@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, status
 from app.services.database import db
 from app.models.case import CaseCreate, Case, Accused, Evidence
+from app.services.case_summary_service import summarize_case
 import uuid
 import json
 from datetime import datetime
@@ -251,6 +252,18 @@ def update_case(case_id: str, case_update: dict):
         raise
     except Exception as e:
         print(f"Error updating case: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/{case_id}/summarize")
+def summarize_case_endpoint(case_id: str):
+    """Generate (and persist) a RAG-based case summary from case metadata and indexed evidence."""
+    try:
+        summary_text = summarize_case(case_id)
+        return {"case_id": case_id, "aiSummary": summary_text}
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        print(f"Error summarizing case {case_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/{case_id}")

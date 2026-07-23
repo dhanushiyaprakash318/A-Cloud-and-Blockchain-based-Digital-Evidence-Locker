@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     # Fallback behavior for assistant when DB has no data.
     # Options: 'strict' - only DB answers; 'hybrid' - fallback to LLM with disclaimer; 'general' - always use LLM
     AI_FALLBACK_MODE: str = "hybrid"
+    BEDROCK_SUMMARY_MODEL_ID: str = "amazon.nova-lite-v1:0"
 
     # Security
     SECRET_KEY: str = "supersecretkeydefaultsfortestingonly"

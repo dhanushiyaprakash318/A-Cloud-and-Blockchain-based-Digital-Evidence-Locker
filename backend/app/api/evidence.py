@@ -6,6 +6,7 @@ from app.services.database import db
 from app.services.blockchain import blockchain
 from app.services.text_extractor import extract_text
 from app.services.ai_summary import generate_summary
+from app.services.rag.indexer import index_evidence
 import uuid
 import requests
 import json
@@ -161,6 +162,7 @@ async def upload_evidence(
     text_extracted = False
     summary_generated = False
     processing_status = "NOT_SUPPORTED"
+    extracted_text = None
 
     is_text_doc = (dot_ext in supported_text_types) or (mime in {"application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain"})
     is_image = mime.startswith("image/")
@@ -219,6 +221,18 @@ async def upload_evidence(
         db.update_evidence_in_case(case_id, evidence_id, metadata)
     except Exception as persist_err:
         print(f"[DB] Failed to persist processing results: {persist_err}")
+
+    # 8. Index evidence text for RAG-based case summarization (non-fatal)
+    try:
+        index_evidence(
+            case_id=case_id,
+            evidence_id=evidence_id,
+            filename=file.filename,
+            text_extracted=extracted_text,
+            ai_summary=ai_summary,
+        )
+    except Exception as index_err:
+        print(f"[RAG] Non-fatal indexing error: {index_err}")
 
     return {
         "evidence_id": evidence_id,
