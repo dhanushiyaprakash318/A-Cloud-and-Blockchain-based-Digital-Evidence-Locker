@@ -241,6 +241,19 @@ export const cases = {
       throw error;
     }
   },
+
+  /**
+   * Generate (and persist) a RAG-based summary for a case
+   */
+  summarize: async (id: string): Promise<{ case_id: string; aiSummary: string }> => {
+    try {
+      const response = await api.post(`/cases/${id}/summarize`);
+      return response.data;
+    } catch (error) {
+      console.error(`Error summarizing case ${id}:`, error);
+      throw error;
+    }
+  },
 };
 
 export const assistant = {

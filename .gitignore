@@ -97,6 +97,7 @@ react-bits-mcp-server/
 temp_uploads/
 temp_downloads/
 local_db.json
+backend/vector_db/
 
 blockchain/artifacts/
 blockchain/cache/S
