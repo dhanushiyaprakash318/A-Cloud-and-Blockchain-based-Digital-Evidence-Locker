@@ -310,7 +310,7 @@ const Chatbot: React.FC = () => {
                       <div className="text-sm text-muted-foreground text-right">
                         <div><strong>Case Number:</strong> {selectedCaseMeta.caseNumber || selectedCaseMeta.id}</div>
                         <div><strong>Status:</strong> {selectedCaseMeta.status || 'Unknown'}</div>
-                        <div><strong>District:</strong> {selectedCaseMeta.district || selectedCaseMeta.location || 'Unknown'}</div>
+                        <div><strong>District:</strong> {selectedCaseMeta.district || 'Unknown'}</div>
                         <div><strong>Date Reported:</strong> {selectedCaseMeta.dateOfReport || selectedCaseMeta.dateOfOffence || 'Unknown'}</div>
                         <div><strong>Evidence Files:</strong> {(selectedCaseMeta.evidence || []).length}</div>
                       </div>

@@ -1,8 +1,6 @@
 const hre = require("hardhat");
 const fs = require("fs");
 const path = require("path");
-
-<<<<<<< HEAD
 function writeJson(filePath, data) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`);
@@ -20,8 +18,6 @@ async function ensureNetworkConfig(networkName) {
     }
 }
 
-=======
->>>>>>> 2f7d426 (Revert "blockchain deployed on ethereum sepolia")
 async function main() {
     console.log("Deploying EvidenceRegistry...");
 
