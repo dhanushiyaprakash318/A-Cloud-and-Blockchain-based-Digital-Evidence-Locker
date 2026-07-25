@@ -4,9 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Upload, CheckCircle2 } from 'lucide-react';
-import { cases, evidence } from '@/services/api';
+import { Loader2, Upload, CheckCircle2, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { cases, evidence, deepfake } from '@/services/api';
 import type { Case } from '@/types/case';
+
+type DeepfakeStatus = 'idle' | 'checking' | 'real' | 'fake' | 'error';
 
 const EvidenceUpload: React.FC = () => {
   const [caseId, setCaseId] = useState('');
@@ -16,6 +18,10 @@ const EvidenceUpload: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [availableCases, setAvailableCases] = useState<Case[]>([]);
   const [caseFetchError, setCaseFetchError] = useState<string | null>(null);
+  const [deepfakeStatus, setDeepfakeStatus] = useState<DeepfakeStatus>('idle');
+  const [deepfakeResult, setDeepfakeResult] = useState<any>(null);
+
+  const isMediaFile = !!selectedFile && (selectedFile.type.startsWith('image/') || selectedFile.type.startsWith('video/'));
 
   useEffect(() => {
     const loadCases = async () => {
@@ -32,8 +38,30 @@ const EvidenceUpload: React.FC = () => {
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setError(null);
+    setDeepfakeStatus('idle');
+    setDeepfakeResult(null);
     if (event.target.files && event.target.files.length > 0) {
       setSelectedFile(event.target.files[0]);
+    }
+  };
+
+  const handleCheckDeepfake = async () => {
+    if (!selectedFile) return;
+
+    setDeepfakeStatus('checking');
+    setDeepfakeResult(null);
+    setError(null);
+
+    try {
+      const response = selectedFile.type.startsWith('video/')
+        ? await deepfake.checkVideo(selectedFile)
+        : await deepfake.checkImage(selectedFile);
+      setDeepfakeResult(response);
+      setDeepfakeStatus(response?.prediction === 'REAL' ? 'real' : 'fake');
+    } catch (checkError: unknown) {
+      setDeepfakeStatus('error');
+      const message = checkError instanceof Error ? checkError.message : 'Deepfake service unavailable.';
+      setError(`Deepfake check failed: ${message}`);
     }
   };
 
@@ -45,6 +73,15 @@ const EvidenceUpload: React.FC = () => {
 
     if (!selectedFile) {
       setError('Please choose an evidence file to upload.');
+      return;
+    }
+
+    if (isMediaFile && deepfakeStatus !== 'real') {
+      setError(
+        deepfakeStatus === 'fake'
+          ? '🚫 Deepfake detected — this file cannot be uploaded as evidence.'
+          : 'Please run the deepfake check on this file and confirm it is REAL before uploading.'
+      );
       return;
     }
 
@@ -125,6 +162,37 @@ const EvidenceUpload: React.FC = () => {
                   {selectedFile && (
                     <p className="mt-2 text-sm text-muted-foreground">Selected file: {selectedFile.name}</p>
                   )}
+                  {isMediaFile && (
+                    <div className="mt-3 flex items-center gap-3">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={handleCheckDeepfake}
+                        disabled={deepfakeStatus === 'checking'}
+                        className="flex items-center gap-2"
+                      >
+                        {deepfakeStatus === 'checking' ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : deepfakeStatus === 'fake' ? (
+                          <ShieldAlert className="h-4 w-4 text-destructive" />
+                        ) : (
+                          <ShieldCheck className="h-4 w-4 text-green-600" />
+                        )}
+                        Check for Deepfake
+                      </Button>
+                      {deepfakeStatus === 'real' && deepfakeResult && (
+                        <span className="text-sm font-medium text-green-600">
+                          REAL ({deepfakeResult.confidence != null ? (100 - deepfakeResult.confidence).toFixed(1) : '—'}% confidence)
+                        </span>
+                      )}
+                      {deepfakeStatus === 'fake' && deepfakeResult && (
+                        <span className="text-sm font-medium text-destructive">
+                          FAKE ({deepfakeResult.confidence ?? '—'}% confidence)
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -135,7 +203,11 @@ const EvidenceUpload: React.FC = () => {
               )}
 
               <div className="flex items-center gap-3">
-                <Button onClick={handleUpload} disabled={uploading} className="min-w-[180px]">
+                <Button
+                  onClick={handleUpload}
+                  disabled={uploading || (isMediaFile && deepfakeStatus !== 'real')}
+                  className="min-w-[180px]"
+                >
                   {uploading ? (
                     <span className="inline-flex items-center gap-2">
                       <Loader2 className="h-4 w-4 animate-spin" />

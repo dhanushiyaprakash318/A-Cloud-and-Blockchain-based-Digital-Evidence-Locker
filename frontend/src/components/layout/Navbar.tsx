@@ -17,6 +17,7 @@ const navItems = [
   { path: '/dashboard', label: 'Dashboard', icon: Home },
   { path: '/knowledge-graph', label: 'Knowledge Graph', icon: GitBranch },
   { path: '/heatmap', label: 'Heatmap', icon: Map },
+  { path: '/deepfake', label: 'Deepfake', icon: ScanFace },
   { path: '/chatbot', label: 'Chatbot', icon: MessageSquare },
 ];
 

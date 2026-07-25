@@ -283,5 +283,37 @@ export const assistant = {
   },
 };
 
+// Standalone Deepfake Detection microservice (separate from the main API, no auth/CORS-shared origin needed)
+const DEEPFAKE_BASE = (import.meta.env.VITE_DEEPFAKE_BASE_URL || 'http://localhost:8001').replace(/\/$/, '');
+const deepfakeClient = axios.create({
+  baseURL: DEEPFAKE_BASE,
+  timeout: 60000, // CPU-bound inference can take several seconds
+});
+
+export const deepfake = {
+  checkImage: async (file: File): Promise<unknown> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await deepfakeClient.post('/predict/image', formData);
+    return response.data;
+  },
+  checkVideo: async (file: File): Promise<unknown> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await deepfakeClient.post('/predict/video', formData);
+    return response.data;
+  },
+  checkUrl: async (url: string): Promise<unknown> => {
+    const formData = new FormData();
+    formData.append('url', url);
+    const response = await deepfakeClient.post('/predict/url', formData);
+    return response.data;
+  },
+  health: async (): Promise<unknown> => {
+    const response = await deepfakeClient.get('/health');
+    return response.data;
+  },
+};
+
 export { api as apiClient };
 export default api;

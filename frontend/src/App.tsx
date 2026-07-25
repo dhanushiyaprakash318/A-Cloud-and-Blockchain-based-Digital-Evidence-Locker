@@ -10,6 +10,7 @@ import KnowledgeGraph from "./pages/KnowledgeGraph";
 import Heatmap from "./pages/Heatmap";
 import EvidenceUpload from "./pages/EvidenceUpload";
 import Chatbot from "./pages/Chatbot";
+import DeepfakeDetection from "./pages/DeepfakeDetection";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -29,6 +30,7 @@ const App = () => (
             <Route path="/heatmap" element={<Heatmap />} />
             <Route path="/evidence-upload" element={<EvidenceUpload />} />
             <Route path="/chatbot" element={<Chatbot />} />
+            <Route path="/deepfake" element={<DeepfakeDetection />} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>

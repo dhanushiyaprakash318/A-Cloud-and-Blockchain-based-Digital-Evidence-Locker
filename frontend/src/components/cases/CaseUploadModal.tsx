@@ -6,7 +6,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { cases, evidence } from '@/services/api';
+import { cases, evidence, deepfake } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -30,6 +30,9 @@ import {
   Plus,
   X,
   Phone,
+  Loader2,
+  ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -80,7 +83,10 @@ export const CaseUploadModal: React.FC<CaseUploadModalProps> = ({
 
   // State for Evidence Files
   const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
+  const [deepfakeStatuses, setDeepfakeStatuses] = useState<Record<number, 'idle' | 'checking' | 'real' | 'fake' | 'error'>>({});
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const isMediaFile = (file: File) => file.type.startsWith('image/') || file.type.startsWith('video/');
 
   const [accused, setAccused] = useState<AccusedInfo[]>([
     {
@@ -173,6 +179,15 @@ export const CaseUploadModal: React.FC<CaseUploadModalProps> = ({
       if (!latitude) missingFields.push("Latitude");
       if (!longitude) missingFields.push("Longitude");
 
+      const unverifiedMedia = evidenceFiles
+        .map((file, idx) => ({ file, idx }))
+        .filter(({ file, idx }) => isMediaFile(file) && deepfakeStatuses[idx] !== 'real');
+      if (unverifiedMedia.length > 0) {
+        missingFields.push(
+          `Deepfake check for: ${unverifiedMedia.map(({ file }) => file.name).join(', ')}`
+        );
+      }
+
       if (missingFields.length > 0) {
         toast({
           variant: 'destructive',
@@ -253,12 +268,46 @@ export const CaseUploadModal: React.FC<CaseUploadModalProps> = ({
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      setEvidenceFiles((prev) => [...prev, ...Array.from(e.target.files || [])]);
+      const newFiles = Array.from(e.target.files);
+      const startIndex = evidenceFiles.length;
+      setEvidenceFiles((prev) => [...prev, ...newFiles]);
+      setDeepfakeStatuses((prev) => {
+        const updated = { ...prev };
+        newFiles.forEach((_, i) => {
+          updated[startIndex + i] = 'idle';
+        });
+        return updated;
+      });
     }
   };
 
   const removeFile = (index: number) => {
     setEvidenceFiles((prev) => prev.filter((_, i) => i !== index));
+    setDeepfakeStatuses((prev) => {
+      const updated: Record<number, 'idle' | 'checking' | 'real' | 'fake' | 'error'> = {};
+      Object.keys(prev)
+        .map(Number)
+        .filter((i) => i !== index)
+        .forEach((i) => {
+          updated[i > index ? i - 1 : i] = prev[i];
+        });
+      return updated;
+    });
+  };
+
+  const handleCheckDeepfake = async (index: number) => {
+    const file = evidenceFiles[index];
+    if (!file) return;
+
+    setDeepfakeStatuses((prev) => ({ ...prev, [index]: 'checking' }));
+    try {
+      const response: any = file.type.startsWith('video/')
+        ? await deepfake.checkVideo(file)
+        : await deepfake.checkImage(file);
+      setDeepfakeStatuses((prev) => ({ ...prev, [index]: response?.prediction === 'REAL' ? 'real' : 'fake' }));
+    } catch (err) {
+      setDeepfakeStatuses((prev) => ({ ...prev, [index]: 'error' }));
+    }
   };
 
   return (
@@ -569,19 +618,54 @@ export const CaseUploadModal: React.FC<CaseUploadModalProps> = ({
                 {evidenceFiles.length > 0 && (
                   <div className="w-full max-w-md space-y-2">
                     <p className="text-sm font-medium text-muted-foreground text-left mb-2">Selected Files ({evidenceFiles.length}):</p>
-                    {evidenceFiles.map((file, idx) => (
-                      <div key={idx} className="flex items-center justify-between p-2 bg-muted/50 rounded-md border border-border">
-                        <span className="text-sm truncate max-w-[200px]">{file.name}</span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 w-6 p-0 text-destructive hover:text-destructive/90"
-                          onClick={() => removeFile(idx)}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))}
+                    {evidenceFiles.map((file, idx) => {
+                      const status = deepfakeStatuses[idx] ?? 'idle';
+                      return (
+                        <div key={idx} className="flex items-center justify-between p-2 bg-muted/50 rounded-md border border-border">
+                          <span className="text-sm truncate max-w-[160px]">{file.name}</span>
+                          <div className="flex items-center gap-2">
+                            {isMediaFile(file) && (
+                              <>
+                                {status === 'real' && (
+                                  <span className="text-xs font-medium text-green-600">REAL</span>
+                                )}
+                                {status === 'fake' && (
+                                  <span className="text-xs font-medium text-destructive">FAKE</span>
+                                )}
+                                {status === 'error' && (
+                                  <span className="text-xs font-medium text-destructive">Unavailable</span>
+                                )}
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-6 px-2 text-xs flex items-center gap-1"
+                                  onClick={() => handleCheckDeepfake(idx)}
+                                  disabled={status === 'checking'}
+                                >
+                                  {status === 'checking' ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : status === 'fake' || status === 'error' ? (
+                                    <ShieldAlert className="h-3 w-3 text-destructive" />
+                                  ) : (
+                                    <ShieldCheck className="h-3 w-3 text-green-600" />
+                                  )}
+                                  Check
+                                </Button>
+                              </>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0 text-destructive hover:text-destructive/90"
+                              onClick={() => removeFile(idx)}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
