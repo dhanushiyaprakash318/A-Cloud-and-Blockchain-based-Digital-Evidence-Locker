@@ -5,25 +5,39 @@
 DiVeL is a cloud-native Digital Evidence Management System designed for
 law enforcement agencies, forensic laboratories, and judicial
 organizations. It provides secure evidence storage, blockchain-backed
-integrity verification, AI-powered evidence summarization, and an
-intelligent investigation assistant using Amazon Bedrock.
+integrity verification, AI-powered evidence summarization and case
+intelligence, deepfake/media forensics, and an investigation assistant
+chatbot — all behind a role-based (Police / Forensics / Judge) web
+portal.
+
+The system is built to run in two modes:
+
+- **Full cloud mode** -- backed by AWS (S3, DynamoDB, Lambda, Bedrock)
+  and an Ethereum blockchain, as described in the architecture
+  diagrams below.
+- **Local/offline mode** -- if AWS credentials or a blockchain RPC
+  endpoint are not configured, the backend automatically falls back to
+  a local JSON-file database and a local blockchain ledger, so the
+  application still runs end-to-end for development and demos.
 
 ------------------------------------------------------------------------
 ## Features
 
-- Secure Digital Evidence Storage
-- Blockchain-based Evidence Integrity Verification
-- AI-powered Evidence Summarization
-- Intelligent Investigation Assistant
-- Case Management
-- Evidence Upload & Tracking
-- SHA-256 Hash Verification
-- Immutable Blockchain Anchoring
-- Amazon S3 Storage
-- DynamoDB Metadata Storage
-- Role-Based Authentication
+- Secure Digital Evidence Storage (Amazon S3 / local disk fallback)
+- Blockchain-based Evidence Integrity Verification (Ethereum, via web3.py)
+- AI-powered Evidence Summarization (Amazon Bedrock / Google Gemini / local Ollama)
+- Retrieval-Augmented Chat Assistant over case & evidence data (ChromaDB + Sentence-Transformers)
+- Case Management Dashboard with filters, search, and case cards
+- Evidence Upload & Tracking (documents, images, video, audio)
+- Interactive Knowledge Graph of cases, accused, and evidence
+- Geographic Heatmap of case locations
+- AI-based Deepfake / Manipulated Media Detection for uploaded images & videos
+- SHA-256 Hash Verification of every evidence file
+- Immutable Blockchain Anchoring of evidence hashes
+- DynamoDB Metadata Storage (with local-mode fallback)
+- Role-Based Authentication (Police, Forensics, Judge)
 - Audit Logging
-- REST APIs
+- REST APIs (FastAPI, with Swagger/OpenAPI docs)
 
 # Overall System Architecture
 
@@ -34,6 +48,8 @@ intelligent investigation assistant using Amazon Bedrock.
                          │ • Case Management            │
                          │ • Evidence Upload            │
                          │ • Dashboard                  │
+                         │ • Knowledge Graph & Heatmap  │
+                         │ • Deepfake Detection UI      │
                          │ • AI Chat Assistant          │
                          └──────────────┬───────────────┘
                                         │
@@ -79,6 +95,10 @@ intelligent investigation assistant using Amazon Bedrock.
              │ Smart Contract        │
              └──────────────────────┘
 ```
+
+A separate, standalone **Deepfake Detection microservice** (FastAPI +
+PyTorch/transformers) runs alongside the main backend and is called by
+the frontend whenever an image or video is attached as evidence.
 
 ------------------------------------------------------------------------
 
@@ -126,8 +146,11 @@ File Type Check
    └── Image / Video
             │
             ▼
- Store Metadata Only
- processing_status = NOT_SUPPORTED
+   Deepfake Detection Service
+   (EfficientNet-B0 + Swin + Xception + ResNet ensemble)
+            │
+            ▼
+   REAL / FAKE verdict shown before upload is allowed to proceed
 ```
 
 ------------------------------------------------------------------------
@@ -141,24 +164,24 @@ Officer Question
 React Chat UI
        │
        ▼
-POST /assistant/chat
+POST /api/v1/ai/query
        │
        ▼
 FastAPI
        │
        ▼
-Amazon Nova Lite
-(Intent Classification)
+Intent Detection + Retrieval
+(DynamoDB lookups, ChromaDB vector search over case/evidence text)
        │
        ▼
-Query Router
+Amazon Nova Lite (Bedrock Converse API)
        │
  ┌─────┴─────────────────────┐
  │                           │
  ▼                           ▼
-DynamoDB                 Amazon Nova Lite
-Statistics               Evidence Reasoning
-& Case Search            (Stored Summaries)
+Exact DB Answers          LLM-Generated Answer
+(counts, accused lists,   (with disclaimer when
+case search results)      falling back beyond the DB)
  │                           │
  └──────────────┬────────────┘
                 ▼
@@ -174,19 +197,30 @@ Statistics               Evidence Reasoning
 
 ## Frontend
 
--   React
--   TypeScript
+-   React + TypeScript
 -   Vite
+-   Tailwind CSS + shadcn/ui (Radix primitives)
 -   Axios
+-   React Router
 
 ## Backend
 
 -   FastAPI
--   Python
--   Pydantic
--   Boto3
+-   Python 3.11
+-   Pydantic / pydantic-settings
+-   Boto3 (AWS SDK)
+-   web3.py (Ethereum integration)
+-   ChromaDB + Sentence-Transformers (RAG vector store for chat assistant)
+-   PyMuPDF / python-docx (evidence text extraction)
 
-## Cloud
+## Deepfake Detection Service
+
+-   FastAPI microservice (independent process, port 8001)
+-   PyTorch + Torchvision + Transformers
+-   Hybrid ensemble: EfficientNet-B0, Swin Transformer, Xception, ResNet-34
+-   OpenCV / MoviePy for video frame extraction
+
+## Cloud (optional, for full production mode)
 
 -   Amazon S3
 -   Amazon DynamoDB
@@ -199,14 +233,15 @@ Statistics               Evidence Reasoning
 
 ## AI
 
--   Amazon Nova Lite (`amazon.nova-lite-v1:0`)
--   Amazon Bedrock Converse API
+-   Amazon Nova Lite (`amazon.nova-lite-v1:0`) via Amazon Bedrock Converse API -- chat assistant
+-   Google Gemini -- evidence/case summarization (`AI_PROVIDER=gemini`)
+-   Local Ollama (e.g. Llama 3) -- optional fully offline summarization fallback
 
 ## Blockchain
 
 -   Solidity
 -   Hardhat
--   Ethereum Sepolia
+-   Ethereum Sepolia (or a local Hardhat node for development)
 
 ------------------------------------------------------------------------
 
@@ -225,63 +260,244 @@ Statistics               Evidence Reasoning
   KMS                Encryption
   Ethereum Sepolia   Tamper-proof integrity verification
 
+> All AWS/blockchain integrations are optional for local development.
+> If `backend/.env` has no AWS credentials, the backend automatically
+> switches to a local JSON-file database; if no blockchain RPC/private
+> key is reachable, evidence hashing still runs but is not anchored
+> on-chain.
+
 ------------------------------------------------------------------------
 
 # Repository Structure
 
 ``` text
-DiVeL
-├── backend
+A-Cloud-and-Blockchain-based-Digital-Evidence-Locker
+├── backend                      # FastAPI main API (port 8046)
 │   ├── app
-│   │   ├── api
-│   │   ├── services
+│   │   ├── api                  # auth, cases, evidence, ai_chat, assistant, bedrock, init
+│   │   ├── services             # database, storage, blockchain, ai, rag/, ...
 │   │   ├── models
-│   │   ├── core
-│   │   └── utils
+│   │   └── core                 # config.py (Settings), security.py
+│   ├── contracts                 # compiled ABI used by blockchain.py
+│   ├── seed_complex_cases.py     # auto-seeds demo data on first run
+│   ├── .env.example
 │   └── requirements.txt
-├── frontend
+├── frontend                      # React + Vite app (port 5173)
 │   ├── src
-│   ├── components
-│   ├── pages
-│   └── services
-├── blockchain
-│   ├── contracts
-│   ├── scripts
+│   │   ├── pages                 # Dashboard, CaseDetail, KnowledgeGraph, Heatmap,
+│   │   │                         # DeepfakeDetection, Chatbot, EvidenceUpload, Login
+│   │   ├── components
+│   │   └── services              # api.ts (backend + deepfake HTTP clients)
+│   ├── .env.development
+│   └── package.json
+├── DeepfakeDetector               # Standalone deepfake microservice (port 8001)
+│   ├── backend                    # main.py, routes.py, predictor.py, models/
+│   └── requirements.txt
+├── blockchain                     # Hardhat project
+│   ├── contracts/EvidenceRegistry.sol
+│   ├── scripts/deploy.js
 │   └── hardhat.config.js
-└── README.md
+├── assets                         # Diagrams / screenshots used in docs
+├── start_windows.bat              # Convenience launcher (backend + frontend only)
+├── start_app.sh                   # Convenience launcher for macOS/Linux/WSL
+├── SETUP_GUIDE.md                 # Troubleshooting deep-dive
+└── README_With_Architecture.md    # This file
 ```
+
+------------------------------------------------------------------------
+
+# Prerequisites
+
+-   **Python** 3.11+ (verify with `python --version` or `py --version` on Windows)
+-   **Node.js** 18+ and **npm**
+-   **Git**
+-   Optional, only for full cloud mode:
+    -   An AWS account with S3 + DynamoDB access and an IAM access key
+    -   A funded Ethereum Sepolia wallet + RPC URL (e.g. Alchemy/Infura), **or**
+        Hardhat installed locally to run a throwaway local chain
+
+------------------------------------------------------------------------
+
+# Environment Configuration
+
+The backend reads a single `.env` file from the **project root**
+(`backend/app/core/config.py` looks in the repo root, `backend/`, and
+`blockchain/`). Copy the example and fill in only what you have —
+everything else safely falls back to local mode:
+
+```bash
+cp backend/.env.example .env
+```
+
+```ini
+# AWS Configuration (optional — omit to use local JSON-file storage)
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+AWS_REGION=eu-north-1
+S3_BUCKET_NAME=
+DYNAMODB_TABLE_CASES=cases
+DYNAMODB_TABLE_EVIDENCE=evidence
+
+# Blockchain Configuration (optional — omit to skip on-chain anchoring)
+# Default hardhat/ganache local URL
+BLOCKCHAIN_RPC_URL=http://127.0.0.1:8545
+BLOCKCHAIN_CONTRACT_ADDRESS=
+BLOCKCHAIN_PRIVATE_KEY=
+
+# AI Configuration
+GEMINI_API_KEY=
+AI_PROVIDER=gemini        # gemini | local (Ollama)
+
+# Security
+SECRET_KEY=supersecretkeydefaultsfortestingonly
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+```
+
+The Amazon Bedrock chat assistant uses your AWS credentials directly
+(no separate key needed) — if they're absent, chat falls back to a
+plain database-lookup answer with no LLM narration.
 
 ------------------------------------------------------------------------
 
 # Running the Project
 
-## Backend
+The application has **three independent services**. Run each in its
+own terminal.
 
-``` powershell
+## 1. Backend API (port 8046)
+
+```powershell
 cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+python -m venv venv
+.\venv\Scripts\Activate.ps1          # PowerShell
+# venv\Scripts\activate.bat          # cmd.exe
+# source venv/bin/activate           # macOS/Linux
+
 pip install -r requirements.txt
-python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
+python -m uvicorn main:app --reload --port 8046
 ```
 
-## Frontend
+On first run the database is empty, so the backend automatically
+seeds a set of demo cases (`seed_complex_cases.py`) — look for
+`DATABASE EMPTY - SEEDING WITH INITIAL DATA` in the logs.
 
-``` powershell
+## 2. Frontend (port 5173)
+
+```powershell
 cd frontend
 npm install
 npm run dev
 ```
 
+Visit **http://localhost:5173**. The frontend expects the backend at
+`http://localhost:8046` and the deepfake service at
+`http://localhost:8001` — both configurable in `frontend/.env.development`.
+
+## 3. Deepfake Detection microservice (port 8001)
+
+Required for the "Deepfake" tab and for the mandatory image/video
+check during evidence upload — if this isn't running, uploading any
+photo or video evidence will fail with a *"Missing required fields:
+Deepfake check"* validation error.
+
+```powershell
+cd DeepfakeDetector/backend
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python -m uvicorn main:app --port 8001
+```
+
+The first request downloads the `dima806/deepfake_vs_real_image_detection`
+model from Hugging Face, so an internet connection is needed at least once.
+
+## 4. (Optional) Local blockchain node
+
+Only needed if you want real on-chain anchoring without a Sepolia
+wallet:
+
+```bash
+cd blockchain
+npm install
+npm run node                 # starts a local Hardhat chain on :8545
+# in a second terminal:
+npm run deploy:local         # deploys EvidenceRegistry.sol, writes deployed-address.json
+```
+
+Copy the deployed address and one of the printed private keys into
+`.env` as `BLOCKCHAIN_CONTRACT_ADDRESS` and `BLOCKCHAIN_PRIVATE_KEY`,
+then restart the backend.
+
+## Quickest path (Windows, backend + frontend only)
+
+`start_windows.bat` automates steps 1 and 2 (venv creation, `pip
+install`, `npm install`, and launching both servers in new windows).
+It does **not** start the Deepfake Detection service — start that one
+manually if you need image/video evidence checks.
+
+------------------------------------------------------------------------
+
+# Verifying Your Setup
+
+  Check                         Command
+  ------------------------------ --------------------------------------------------
+  Backend is up                 `curl http://127.0.0.1:8046/`
+  Backend DB status              `curl http://127.0.0.1:8046/api/v1/init/status`
+  API docs (Swagger)             open `http://127.0.0.1:8046/docs`
+  Frontend is up                 open `http://localhost:5173`
+  Deepfake service is up         `curl http://127.0.0.1:8001/health`
+
+------------------------------------------------------------------------
+
+# Demo Login Credentials
+
+The auth service ships with three built-in demo accounts (see
+`backend/app/api/auth.py`) — use these to log into the frontend:
+
+  Role        Username     Password
+  ----------- ------------ ---------------
+  Police      `polaris`    `polaris123`
+  Forensics   `forensics`  `forensics123`
+  Judge       `judge`      `judge123`
+
+Change or remove these before any real deployment.
+
 ------------------------------------------------------------------------
 
 # API Endpoints
 
-  Method   Endpoint
-  -------- ---------------------------
-  POST     `/api/v1/evidence/upload`
-  GET      `/api/v1/cases`
-  POST     `/api/v1/assistant/chat`
+All routes are prefixed with `/api/v1`.
+
+  Method   Endpoint                                Purpose
+  -------- --------------------------------------- ----------------------------------
+  POST     `/auth/login`                            Log in, returns a JWT + role
+  GET      `/cases`                                 List cases (with filters)
+  POST     `/cases`                                 Create a case
+  GET      `/cases/{case_id}`                       Get one case
+  PUT      `/cases/{case_id}`                        Update a case
+  DELETE   `/cases/{case_id}`                        Delete a case
+  GET      `/cases/{case_id}/knowledge-graph`         Graph data for the Knowledge Graph view
+  POST     `/cases/{case_id}/summarize`               Trigger an AI case summary
+  GET      `/evidence/{case_id}`                     List evidence for a case
+  POST     `/evidence/upload`                         Upload evidence (multipart)
+  GET      `/evidence/{evidence_id}/blockchain`        Blockchain anchor details
+  GET      `/evidence/{evidence_id}/verify`            Re-verify hash against blockchain
+  POST     `/ai/query`                                Chat assistant Q&A
+  POST     `/assistant/chat`                           Alternate assistant endpoint
+  POST     `/bedrock/classify`                         Low-level Bedrock classification call
+  GET      `/init/status`                              DB seed status / health
+  POST     `/init/seed`                                 Manually re-seed demo data
+  POST     `/init/clear`                                Clear all data (use with caution)
+
+Deepfake microservice (separate base URL, `http://localhost:8001`, no `/api/v1` prefix):
+
+  Method   Endpoint            Purpose
+  -------- ------------------- --------------------------------
+  POST     `/predict/image`     REAL/FAKE verdict for an image
+  POST     `/predict/video`     REAL/FAKE verdict for a video
+  POST     `/predict/url`       Phishing/risk check for a URL
+  GET      `/health`            Service + model status
 
 ------------------------------------------------------------------------
 
@@ -292,17 +508,17 @@ npm run dev
 -   Immutable evidence metadata
 -   IAM-based authorization
 -   Encryption at rest and in transit
+-   Role-based JWT authentication (Police / Forensics / Judge)
 -   Audit-ready architecture
 
 ------------------------------------------------------------------------
 
 # Future Enhancements
 
--   OCR for image evidence
--   Video understanding
--   Knowledge Graph generation
--   Semantic search with vector database
--   Investigation timeline generation
+-   OCR for scanned/handwritten image evidence
+-   Deeper video understanding (beyond deepfake classification)
+-   Semantic search across the full evidence corpus
+-   Investigation timeline auto-generation
 -   Multi-language AI assistant
 
 ------------------------------------------------------------------------
@@ -580,6 +796,27 @@ Hardhat is the blockchain development framework used to develop, deploy, and tes
 - Local blockchain simulation
 - Easy contract deployment
 - Excellent debugging support
+
+------------------------------------------------------------------------
+
+# Troubleshooting
+
+See [SETUP_GUIDE.md](SETUP_GUIDE.md) for a deeper troubleshooting
+guide. The most common issues:
+
+-   **"Missing required fields: Deepfake check"** on evidence upload
+    → the Deepfake Detection microservice (step 3 above) isn't
+    running on port 8001.
+-   **Port already in use** → find and kill the process:
+    `netstat -ano | findstr :8046` then `taskkill /PID <pid> /F`
+    (swap the port number for 5173 or 8001 as needed).
+-   **Cases dashboard is empty** → check backend logs for the seeding
+    message, or manually trigger it: `curl -X POST http://127.0.0.1:8046/api/v1/init/seed`.
+-   **CORS errors in the browser console** → confirm the frontend is
+    running on `http://localhost:5173` (the backend's CORS allow-list
+    in `backend/main.py` is currently limited to that origin plus
+    `*.vercel.app`).
+
 # License
 
 This project is intended for educational, research, and demonstration
