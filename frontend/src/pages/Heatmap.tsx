@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   Select,
   SelectContent,
@@ -9,8 +10,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { mockCases, districts } from '@/data/mockCases';
-import { Map, Filter, TrendingUp, AlertTriangle } from 'lucide-react';
+import { districts } from '@/data/mockCases';
+import { Map, Filter, TrendingUp, AlertTriangle, Loader, AlertCircle } from 'lucide-react';
 
 /* ================= MAP IMPORTS ================= */
 import {
@@ -75,20 +76,39 @@ const Heatmap: React.FC = () => {
   const [timeFilter, setTimeFilter] = useState('all');
   const [casesData, setCasesData] = useState<any[]>([]); // Using any[] for now or import Case type
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   // Fetch real cases
-  useEffect(() => {
-    const fetchCases = async () => {
-      try {
-        const data = await import('@/services/api').then(m => m.cases.list());
-        setCasesData(data.cases || []);
-      } catch (error) {
-        console.error("Failed to fetch cases:", error);
-      } finally {
-        setLoading(false);
+  const fetchCases = React.useCallback(async (isRetry = false) => {
+    if (!isRetry) {
+      setLoading(true);
+      setError(null);
+    }
+    try {
+      const data = await import('@/services/api').then(m => m.cases.list());
+      setCasesData(data.cases || []);
+      setError(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to fetch cases';
+      console.error('Failed to fetch cases:', message);
+      setError(message);
+
+      // Auto-retry once after 2 seconds, e.g. if the backend was still starting up
+      if (!isRetry && retryCount < 1) {
+        setTimeout(() => {
+          setRetryCount((prev) => prev + 1);
+          fetchCases(true);
+        }, 2000);
       }
-    };
+    } finally {
+      setLoading(false);
+    }
+  }, [retryCount]);
+
+  useEffect(() => {
     fetchCases();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ================= DATA LOGIC ================= */
@@ -138,7 +158,10 @@ const Heatmap: React.FC = () => {
     return (
       <Layout>
         <div className="container py-8 flex justify-center items-center h-[500px]">
-          <p>Loading heatmap data...</p>
+          <div className="text-center">
+            <Loader className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
+            <p className="text-muted-foreground">Loading heatmap data...</p>
+          </div>
         </div>
       </Layout>
     )
@@ -167,6 +190,28 @@ const Heatmap: React.FC = () => {
             </SelectContent>
           </Select>
         </div>
+
+        {/* ERROR STATE */}
+        {error && (
+          <div className="rounded-lg bg-red-50 border border-red-200 p-4 flex items-start gap-4">
+            <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <h3 className="font-medium text-red-900">Error Loading Case Data</h3>
+              <p className="text-sm text-red-700 mt-1">{error}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setRetryCount(0);
+                  fetchCases();
+                }}
+                className="mt-3"
+              >
+                Retry
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* LEGEND */}
         <div className="flex gap-6">
@@ -251,19 +296,25 @@ const Heatmap: React.FC = () => {
                 <CardTitle>Top Districts</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                {districtCounts
-                  .sort((a, b) => b.count - a.count)
-                  .slice(0, 5)
-                  .map((d, i) => (
-                    <div
-                      key={d.district}
-                      className="flex justify-between p-2 hover:bg-muted rounded cursor-pointer"
-                      onClick={() => setSelectedDistrict(d.district)}
-                    >
-                      <span>#{i + 1} {d.district}</span>
-                      <Badge variant="secondary">{d.count}</Badge>
-                    </div>
-                  ))}
+                {districtCounts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No case data available yet.
+                  </p>
+                ) : (
+                  districtCounts
+                    .sort((a, b) => b.count - a.count)
+                    .slice(0, 5)
+                    .map((d, i) => (
+                      <div
+                        key={d.district}
+                        className="flex justify-between p-2 hover:bg-muted rounded cursor-pointer"
+                        onClick={() => setSelectedDistrict(d.district)}
+                      >
+                        <span>#{i + 1} {d.district}</span>
+                        <Badge variant="secondary">{d.count}</Badge>
+                      </div>
+                    ))
+                )}
               </CardContent>
             </Card>
           </div>
