@@ -153,7 +153,19 @@ def get_case(case_id: str):
         except (ValueError, TypeError):
             case['latitude'] = 0.0
             case['longitude'] = 0.0
-        
+
+        # Sanitize blocked/invalid aiSummary
+        ai_sum = case.get('aiSummary', '')
+        if not ai_sum or 'content filter' in ai_sum.lower() or 'blocked by' in ai_sum.lower():
+            from app.services.case_summary_service import build_structured_summary
+            evidence_list = case.get("evidence") or db.list_case_evidence(case_id) or []
+            clean_summary = build_structured_summary(case, evidence_list)
+            case['aiSummary'] = clean_summary
+            try:
+                db.create_case(case)
+            except Exception as update_err:
+                print(f"Non-fatal error persisting cleaned summary for case {case_id}: {update_err}")
+
         return {"case": case}
     except HTTPException:
         raise

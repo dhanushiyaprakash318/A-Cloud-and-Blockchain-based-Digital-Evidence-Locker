@@ -176,8 +176,23 @@ export const CaseUploadModal: React.FC<CaseUploadModalProps> = ({
       if (!dateOfOffence) missingFields.push("Date of Offence");
       if (!dateOfReport) missingFields.push("Date of Report");
       if (!sceneOfCrime) missingFields.push("Scene of Crime");
-      if (!latitude) missingFields.push("Latitude");
-      if (!longitude) missingFields.push("Longitude");
+      if (!latitude) {
+        missingFields.push("Latitude");
+      } else {
+        const latVal = parseFloat(latitude);
+        if (isNaN(latVal) || latVal < -90 || latVal > 90) {
+          missingFields.push("Latitude (must be between -90 and 90)");
+        }
+      }
+
+      if (!longitude) {
+        missingFields.push("Longitude");
+      } else {
+        const lngVal = parseFloat(longitude);
+        if (isNaN(lngVal) || lngVal < -180 || lngVal > 180) {
+          missingFields.push("Longitude (must be between -180 and 180)");
+        }
+      }
 
       const unverifiedMedia = evidenceFiles
         .map((file, idx) => ({ file, idx }))
@@ -192,7 +207,7 @@ export const CaseUploadModal: React.FC<CaseUploadModalProps> = ({
         toast({
           variant: 'destructive',
           title: 'Validation Error',
-          description: `Missing required fields: ${missingFields.join(', ')}`,
+          description: `Invalid or missing required fields: ${missingFields.join('; ')}`,
         });
         return;
       }
@@ -216,7 +231,7 @@ export const CaseUploadModal: React.FC<CaseUploadModalProps> = ({
         contrabandQuantity: contrabandQuantity || undefined,
         vehicleDetails: vehicleDetails || undefined,
         accused: accused.map((a) => ({
-          name: a.name,
+          name: a.name.trim() || 'Unknown Accused',
           fatherName: a.fatherName || undefined,
           age: a.age || undefined,
           gender: a.gender || undefined,
@@ -256,12 +271,25 @@ export const CaseUploadModal: React.FC<CaseUploadModalProps> = ({
         description: `Case registered. Blockchain TX: ${newCase.tx_hash || 'Pending'}`,
       });
       onOpenChange(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
+      let errorMsg = 'Unknown error';
+      if (error?.response?.data?.detail) {
+        const detail = error.response.data.detail;
+        if (Array.isArray(detail)) {
+          errorMsg = detail.map((d: any) => `${d.loc?.[d.loc?.length - 1] || 'Field'}: ${d.msg}`).join('; ');
+        } else if (typeof detail === 'string') {
+          errorMsg = detail;
+        } else {
+          errorMsg = JSON.stringify(detail);
+        }
+      } else if (error instanceof Error) {
+        errorMsg = error.message;
+      }
       toast({
         variant: 'destructive',
         title: 'Upload Failed',
-        description: error instanceof Error ? error.message : 'Unknown error',
+        description: errorMsg,
       });
     }
   };
